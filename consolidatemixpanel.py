@@ -1,19 +1,21 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 import pandas as pd
+import sys
+import os
 from io import StringIO
 
-# Define input and output file paths
-input_file = 'mixpanel_export.xlsx'       # Your original Mixpanel export file
-output_file = 'data/data.xlsx'  # Final consolidated output
 
-# Read the Mixpanel export Excel file
-df = pd.read_excel(input_file)
-
-# Consolidate the data: group by 'tripId' and take the last record per trip
-df_consolidated = df.groupby('tripId', as_index=False).last()
-
-# --- Define the mobile specs table as CSV ---
-mobile_specs_csv = """Original Model,Brand,Device Name,Release Year,Android Version,Fingerprint Sensor,Accelerometer,Gyro,Proximity Sensor,Compass,Barometer,Background Task Killing Tendency,Chipset,RAM,Storage,Battery (mAh)
+def consolidate_data():
+    input_file = 'mixpanel_export.xlsx'
+    output_dir = 'data'
+    output_file = os.path.join(output_dir, 'data.xlsx')
+    try:
+        df = pd.read_excel(input_file)
+        # For this consolidation, we take the exported data and keep only one record per tripId (most recent time)
+        df_consolidated = df.sort_values('time', ascending=False).drop_duplicates(subset=['tripId'], keep='first')
+        
+        # Define the mobile specs table as CSV
+        mobile_specs_csv = """Original Model,Brand,Device Name,Release Year,Android Version,Fingerprint Sensor,Accelerometer,Gyro,Proximity Sensor,Compass,Barometer,Background Task Killing Tendency,Chipset,RAM,Storage,Battery (mAh)
 220733SFG,Xiaomi,Xiaomi 12 Lite,2022,12,True,True,True,True,True,False,High,Qualcomm Snapdragon 778G 5G,8GB,128GB,4300
 23028RNCAG,Xiaomi,Xiaomi 13 Lite,2023,12,True,True,True,True,True,False,High,Qualcomm Snapdragon 7 Gen 1,8GB,128GB,4500
 23106RN0DA,Xiaomi,Redmi 13C,2023,13,False,True,False,True,True,False,High,MediaTek Helio G85,4GB,128GB,5000
@@ -74,10 +76,10 @@ RMX2189,Realme,C15,2020,10,True,True,False,True,True,False,High,MediaTek Helio G
 RMX3231,Realme,C25Y,2021,11,True,True,False,True,True,False,High,Unisoc Tiger T610,4GB,64GB,5000
 RMX3261,Realme,C21Y,2021,11,True,True,False,True,True,False,High,Unisoc T610,3GB,32GB,5000
 RMX3263,Realme,Narzo 50i,2021,11 (Go edition),False,True,False,True,False,False,High,Unisoc SC9863A,2GB,32GB,5000
-RMX3269,Realme,C25s,2021,11,True,True,False,True,True,False,High,MediaTek Helio G85,4GB,64GB,6000
+RMX3269,Realme,C25s,2021,11,True,True,False,True,True,False,High,MediaTek G85,4GB,64GB,6000
 RMX3363,Realme,9 Pro 5G,2022,12,True,True,True,True,True,False,High,Qualcomm Snapdragon 695 5G,6GB,128GB,5000
 RMX3627,Realme,C30s,2022,Android 12 (Go edition),True,True,False,True,False,False,High,Unisoc SC9863A2,2GB,32GB,5000
-RMX3710,Realme,C55,2023,13,True,True,False,True,True,False,High,MediaTek Helio G88,6GB,128GB,5000
+RMX3710,Realme,C55,2023,13,True,True,False,True,True,False,High,MediaTek G88,6GB,128GB,5000
 RMX3834,Realme,Narzo N53,2023,13,True,True,False,True,True,False,High,Unisoc Tiger T612,4GB,64GB,5000
 RMX3890,Realme,Narzo 60 5G,2023,13,True,True,True,True,True,False,High,MediaTek Dimensity 6020,8GB,128GB,5000
 RMX3910,Realme,C67 5G,2023,13,True,True,False,True,True,False,High,MediaTek Dimensity 6100+,4GB,128GB,5000
@@ -110,57 +112,63 @@ V2247,Vivo,Y02t,2023,13,False,True,False,True,False,False,High,MediaTek Helio P3
 RMX3085,Realme,C21,2021,10,True,True,False,True,True,False,High,MediaTek Helio G35,3GB,32GB,5000
 V2352,Vivo,Y27 4G,2023,13,True,True,False,True,True,False,High,MediaTek Helio G85,4GB,128GB,5000
 """
+        
+        # Read mobile specs into a DataFrame
+        mobile_specs_df = pd.read_csv(StringIO(mobile_specs_csv))
+        
+        # Merge the consolidated data with mobile specs using 'model' from exported data and 'Original Model' from specs
+        merged_df = pd.merge(df_consolidated, mobile_specs_df, left_on='model', right_on='Original Model', how='left')
+        
+        # Desired column order
+        desired_columns = [
+            'tripId',
+            'time',
+            'app_build_number',
+            'app_version',
+            'brand',
+            'carrier',
+            'city',
+            'has_nfc',
+            'lib_version',
+            'manufacturer',
+            'model',
+            'Device Name',
+            'Release Year',
+            'Android Version',
+            'Fingerprint Sensor',
+            'Accelerometer',
+            'Gyro',
+            'Proximity Sensor',
+            'Compass',
+            'Barometer',
+            'Background Task Killing Tendency',
+            'Chipset',
+            'RAM',
+            'Storage',
+            'Battery (mAh)',
+            'os',
+            'os_version',
+            'region',
+            'user_id',
+            'wifi',
+            'PhoneNumber',
+            'UserId',
+            'UserName',
+            'event'
+        ]
+        
+        # Filter to only the columns that exist in the merged DataFrame
+        final_columns = [col for col in desired_columns if col in merged_df.columns]
+        merged_df_final = merged_df[final_columns]
+        
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        merged_df_final.to_excel(output_file, index=False)
+        print(f"Consolidated file saved as '{output_file}'")
+    except Exception as e:
+        print("Failed to consolidate data:", str(e))
+        sys.exit(1)
 
-# Read mobile specs into a DataFrame
-mobile_specs_df = pd.read_csv(StringIO(mobile_specs_csv))
 
-# --- Merge the consolidated data with mobile specs ---
-# We use the consolidated 'model' field and the specs' 'Original Model' as key.
-merged_df = pd.merge(df_consolidated, mobile_specs_df, left_on='model', right_on='Original Model', how='left')
-
-# --- Reorder and select columns as required ---
-# Desired column order:
-desired_columns = [
-    'tripId',
-    'time',
-    'app_build_number',
-    'app_version',
-    'brand',
-    'carrier',
-    'city',
-    'has_nfc',
-    'lib_version',
-    'manufacturer',
-    'model',
-    'Device Name',
-    'Release Year',
-    'Android Version',
-    'Fingerprint Sensor',
-    'Accelerometer',
-    'Gyro',
-    'Proximity Sensor',
-    'Compass',
-    'Barometer',
-    'Background Task Killing Tendency',
-    'Chipset',
-    'RAM',
-    'Storage',
-    'Battery (mAh)',
-    'os',
-    'os_version',
-    'region',
-    'user_id',
-    'wifi',
-    'PhoneNumber',
-    'UserId',
-    'UserName',
-    'event'
-]
-
-# Filter to only those columns that exist in the merged DataFrame
-final_columns = [col for col in desired_columns if col in merged_df.columns]
-merged_df_final = merged_df[final_columns]
-
-# Save the final consolidated DataFrame to Excel
-merged_df_final.to_excel(output_file, index=False)
-print(f"Consolidated file saved as '{output_file}'")
+if __name__ == '__main__':
+    consolidate_data()

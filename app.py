@@ -17,6 +17,9 @@ from flask import (
 from sqlalchemy import create_engine
 from sqlalchemy.orm import scoped_session, sessionmaker
 from datetime import datetime
+import shutil
+import subprocess
+from collections import defaultdict, Counter
 
 from db.config import DB_URI, API_TOKEN, BASE_API_URL, API_EMAIL, API_PASSWORD
 from db.models import Base, Trip
@@ -502,23 +505,6 @@ def analytics():
 
     session_local.close()
 
-    # Process date range filter
-    start_date = request.args.get("start_date")
-    end_date = request.args.get("end_date")
-    if start_date and end_date:
-        save_filter_to_session("date_range", {"start_date": start_date, "end_date": end_date})
-    else:
-        saved_date = get_saved_filters().get("date_range")
-        if saved_date:
-            start_date = saved_date.get("start_date")
-            end_date = saved_date.get("end_date")
-        else:
-            import datetime
-            today = datetime.date.today()
-            ten_days_ago = today - datetime.timedelta(days=10)
-            start_date = ten_days_ago.strftime('%Y-%m-%d')
-            end_date = today.strftime('%Y-%m-%d')
-
     # Build driver list for the dropdown
     all_drivers = sorted({str(r.get("UserName","")).strip() for r in excel_data if r.get("UserName")})
     carriers_for_dropdown = ["Vodafone","Orange","Etisalat","We"]
@@ -545,9 +531,7 @@ def analytics():
         high_quality_ram=high_quality_ram,
         low_quality_ram=low_quality_ram,
         high_quality_sensors=high_quality_sensors,
-        total_high_quality=total_high_quality,
-        start_date=start_date,
-        end_date=end_date,
+        total_high_quality=total_high_quality
     )
 
 
@@ -833,6 +817,33 @@ def trip_insights():
     avg_manual = total_manual/count_manual if count_manual else 0
     avg_calculated = total_calculated/count_calculated if count_calculated else 0
 
+    excel_map = {r['tripId']: r for r in excel_data if r.get('tripId')}
+    device_specs = defaultdict(lambda: defaultdict(list))
+    for trip in trips_db:
+        trip_id = trip.trip_id
+        quality = trip.route_quality if trip.route_quality else "Unknown"
+        if trip_id in excel_map:
+            row = excel_map[trip_id]
+            device_specs[quality]['model'].append(row.get('model', 'Unknown'))
+            device_specs[quality]['android'].append(row.get('Android Version', 'Unknown'))
+            device_specs[quality]['manufacturer'].append(row.get('manufacturer', 'Unknown'))
+            device_specs[quality]['ram'].append(row.get('RAM', 'Unknown'))
+    automatic_insights = {}
+    for quality, specs in device_specs.items():
+        model_counter = Counter(specs['model'])
+        android_counter = Counter(specs['android'])
+        manufacturer_counter = Counter(specs['manufacturer'])
+        ram_counter = Counter(specs['ram'])
+        most_common_model = model_counter.most_common(1)[0][0] if model_counter else 'N/A'
+        most_common_android = android_counter.most_common(1)[0][0] if android_counter else 'N/A'
+        most_common_manufacturer = manufacturer_counter.most_common(1)[0][0] if manufacturer_counter else 'N/A'
+        most_common_ram = ram_counter.most_common(1)[0][0] if ram_counter else 'N/A'
+        insight = f"For trips with quality '{quality}', most devices are {most_common_manufacturer} {most_common_model} (Android {most_common_android}, RAM {most_common_ram})."
+        if quality.lower() == 'high':
+            insight += " This suggests that high quality trips are associated with robust mobile specs, contributing to accurate tracking."
+        elif quality.lower() == 'low':
+            insight += " This might indicate that lower quality trips could be influenced by devices with suboptimal specifications."
+        automatic_insights[quality] = insight
     session_local.close()
 
     return render_template(
@@ -841,7 +852,8 @@ def trip_insights():
         avg_manual=avg_manual,
         avg_calculated=avg_calculated,
         consistent=consistent,
-        inconsistent=inconsistent
+        inconsistent=inconsistent,
+        automatic_insights=automatic_insights
     )
 
 
@@ -883,6 +895,39 @@ def apply_filter(filter_name):
     else:
         flash("Saved filter not found.", "danger")
         return redirect(url_for("trips"))
+
+@app.route('/update_date_range', methods=['POST'])
+def update_date_range():
+    start_date = request.form.get('start_date')
+    end_date = request.form.get('end_date')
+    if not start_date or not end_date:
+        return jsonify({'error': 'Both start_date and end_date are required.'}), 400
+
+    # Backup existing consolidated data
+    data_file = 'data/data.xlsx'
+    backup_dir = 'data/backup'
+    if os.path.exists(data_file):
+        if not os.path.exists(backup_dir):
+            os.makedirs(backup_dir)
+        backup_file = os.path.join(backup_dir, f"data_{start_date}_{end_date}.xlsx")
+        try:
+            shutil.move(data_file, backup_file)
+        except Exception as e:
+            return jsonify({'error': 'Failed to backup data file: ' + str(e)}), 500
+
+    # Run exportmix.py with new dates
+    try:
+        subprocess.check_call(['python3', 'exportmix.py', '--start-date', start_date, '--end-date', end_date])
+    except subprocess.CalledProcessError as e:
+        return jsonify({'error': 'Failed to export data: ' + str(e)}), 500
+
+    # Run consolidatemixpanel.py
+    try:
+        subprocess.check_call(['python3', 'consolidatemixpanel.py'])
+    except subprocess.CalledProcessError as e:
+        return jsonify({'error': 'Failed to consolidate data: ' + str(e)}), 500
+
+    return jsonify({'message': 'Data updated successfully.'})
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)
