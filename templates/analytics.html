@@ -43,6 +43,11 @@
           {% endfor %}
         </select>
 
+        <!-- Date Range Filter -->
+        <label for="start_date" class="me-2">Start Date:</label>
+        <input type="date" id="start_date" name="start_date" class="form-control me-2" value="{{ start_date }}">
+        <label for="end_date" class="me-2">End Date:</label>
+        <input type="date" id="end_date" name="end_date" class="form-control me-2" value="{{ end_date }}">
         <button class="btn btn-outline-success" type="submit">Filter</button>
       </form>
     </div>

@@ -502,6 +502,23 @@ def analytics():
 
     session_local.close()
 
+    # Process date range filter
+    start_date = request.args.get("start_date")
+    end_date = request.args.get("end_date")
+    if start_date and end_date:
+        save_filter_to_session("date_range", {"start_date": start_date, "end_date": end_date})
+    else:
+        saved_date = get_saved_filters().get("date_range")
+        if saved_date:
+            start_date = saved_date.get("start_date")
+            end_date = saved_date.get("end_date")
+        else:
+            import datetime
+            today = datetime.date.today()
+            ten_days_ago = today - datetime.timedelta(days=10)
+            start_date = ten_days_ago.strftime('%Y-%m-%d')
+            end_date = today.strftime('%Y-%m-%d')
+
     # Build driver list for the dropdown
     all_drivers = sorted({str(r.get("UserName","")).strip() for r in excel_data if r.get("UserName")})
     carriers_for_dropdown = ["Vodafone","Orange","Etisalat","We"]
@@ -528,7 +545,9 @@ def analytics():
         high_quality_ram=high_quality_ram,
         low_quality_ram=low_quality_ram,
         high_quality_sensors=high_quality_sensors,
-        total_high_quality=total_high_quality
+        total_high_quality=total_high_quality,
+        start_date=start_date,
+        end_date=end_date,
     )
 
 
@@ -762,7 +781,7 @@ def update_route_quality():
 def trip_insights():
     """
     Shows route quality counts, distance averages, distance consistency.
-    Respects the data_scope from session so it matches the user’s choice
+    Respects the data_scope from session so it matches the user's choice
     (all data or excel-only).
     """
     session_local = Session()
