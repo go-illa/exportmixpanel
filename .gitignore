@@ -1,0 +1,30 @@
+# Python virtual environment
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Local data files
+*.db
+*.xlsx
+data/*.csv
+data/*.json
+
+# Environment variables
+.env
+
+# IDE specific files
+.idea/
+.vscode/
+
+# Logs
+*.log
+
+# OS specific files
+.DS_Store
+Thumbs.db 

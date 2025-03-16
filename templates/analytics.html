@@ -1,0 +1,249 @@
+{% extends "layout.html" %}
+{% block content %}
+<nav class="navbar navbar-expand-lg navbar-light bg-light">
+  <div class="container-fluid">
+    <a class="navbar-brand" href="{{ url_for('analytics') }}">My Dashboard</a>
+    <div class="collapse navbar-collapse">
+      <ul class="navbar-nav me-auto">
+        <li class="nav-item">
+          <a class="nav-link active" href="{{ url_for('analytics') }}">Dashboard</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="{{ url_for('trips') }}">Trips</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="{{ url_for('trip_insights') }}">Trip Insights</a>
+        </li>
+      </ul>
+      <form class="d-flex" method="GET" action="{{ url_for('analytics') }}">
+        <!-- Data scope toggle -->
+        <div class="me-3">
+          <input type="radio" id="allData" name="data_scope" value="all"
+                 {% if data_scope != 'excel' %}checked{% endif %}>
+          <label for="allData">All Data</label>
+          &nbsp;&nbsp;
+          <input type="radio" id="excelData" name="data_scope" value="excel"
+                 {% if data_scope == 'excel' %}checked{% endif %}>
+          <label for="excelData">Excel Data Only</label>
+        </div>
+
+        <!-- Driver Filter -->
+        <select name="driver" class="form-select me-2">
+          <option value="">-- Select Driver --</option>
+          {% for d in drivers %}
+          <option value="{{ d }}" {% if d == driver_filter %}selected{% endif %}>{{ d }}</option>
+          {% endfor %}
+        </select>
+
+        <!-- Carrier Filter -->
+        <select name="carrier" class="form-select me-2">
+          <option value="">-- Select Carrier --</option>
+          {% for c in carriers_for_dropdown %}
+          <option value="{{ c }}" {% if c == carrier_filter %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+
+        <button class="btn btn-outline-success" type="submit">Filter</button>
+      </form>
+    </div>
+  </div>
+</nav>
+
+<h1 class="mt-4">Dashboard</h1>
+<div class="mb-3">
+  <h3>Distance Accuracy Insight</h3>
+  <p>Total Trips Analyzed: {{ total_trips }}</p>
+  <p>Correct (within 20% variance): {{ correct_pct|round(2) }}%</p>
+  <p>Incorrect: {{ incorrect_pct|round(2) }}%</p>
+</div>
+
+<!-- CHARTS -->
+<div class="row mt-4">
+  <div class="col-md-6">
+    <h3>Carrier Distribution (Per User)</h3>
+    <canvas id="carrierChart"></canvas>
+  </div>
+  <div class="col-md-6">
+    <h3>OS Usage (Per User)</h3>
+    <canvas id="osChart"></canvas>
+  </div>
+</div>
+
+<hr/>
+
+<div class="row mt-4">
+  <div class="col-md-6">
+    <h3>Manufacturer Distribution (Per User)</h3>
+    <canvas id="manufacturerChart"></canvas>
+  </div>
+  <div class="col-md-6">
+    <h3>Device Usage (Per User)</h3>
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Model</th>
+          <th>Count</th>
+          <th>Percentage</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in device_usage %}
+        <tr>
+          <td>{{ d.model }}</td>
+          <td>{{ d.count }}</td>
+          <td>{{ d.percentage }}%</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<hr/>
+<!-- Trip Quality Analysis (placed below the charts) -->
+<div class="mb-3">
+  <h2>Trip Quality Analysis</h2>
+  <div class="row">
+    <div class="col-md-6">
+      <h3>High Quality Analysis</h3>
+      <p>Total High Quality Trips: {{ total_high_quality }}</p>
+      <h5>By Model</h5>
+      <ul>
+        {% for model, count in high_quality_models.items() %}
+        <li>{{ model }}: {{ count }}</li>
+        {% endfor %}
+      </ul>
+      <h5>By Android Version</h5>
+      <ul>
+        {% for ver, count in high_quality_android.items() %}
+        <li>{{ ver }}: {{ count }}</li>
+        {% endfor %}
+      </ul>
+      <h5>By RAM</h5>
+      <ul>
+        {% for ram, count in high_quality_ram.items() %}
+        <li>{{ ram }}: {{ count }}</li>
+        {% endfor %}
+      </ul>
+      <h5>Sensors Present in High Quality Trips</h5>
+      <ul>
+        {% for sensor, count in high_quality_sensors.items() %}
+        <li>{{ sensor }}: {{ count }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    <div class="col-md-6">
+      <h3>Low Quality Analysis</h3>
+      <h5>By Model</h5>
+      <ul>
+        {% for model, count in low_quality_models.items() %}
+        <li>{{ model }}: {{ count }}</li>
+        {% endfor %}
+      </ul>
+      <h5>By Android Version</h5>
+      <ul>
+        {% for ver, count in low_quality_android.items() %}
+        <li>{{ ver }}: {{ count }}</li>
+        {% endfor %}
+      </ul>
+      <h5>By RAM</h5>
+      <ul>
+        {% for ram, count in low_quality_ram.items() %}
+        <li>{{ ram }}: {{ count }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+
+<hr/>
+<!-- Consolidated Data Per User -->
+<h2 class="mt-4">Consolidated Data Per User</h2>
+<table class="table table-bordered">
+    <thead>
+      <tr>
+        <th>User Name</th>
+        <th>Total Trips</th>
+        <th>No Logs Trips</th>
+        <th>Trip Points Only Exist</th>
+        <th>Low</th>
+        <th>Moderate</th>
+        <th>High</th>
+        <th>Other</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for user, data in user_data.items() %}
+      <tr>
+        <td>{{ user }}</td>
+        <td>{{ data.total_trips }}</td>
+        <td>{{ data["No Logs Trips"] }}</td>
+        <td>{{ data["Trip Points Only Exist"] }}</td>
+        <td>{{ data["Low"] }}</td>
+        <td>{{ data["Moderate"] }}</td>
+        <td>{{ data["High"] }}</td>
+        <td>{{ data["Other"] }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+const carrierCounts = JSON.parse('{{ carrier_counts|tojson|safe }}');
+const osCounts = JSON.parse('{{ os_counts|tojson|safe }}');
+const manufacturerCounts = JSON.parse('{{ manufacturer_counts|tojson|safe }}');
+
+const carrierLabels = Object.keys(carrierCounts);
+const carrierValues = Object.values(carrierCounts);
+const osLabels = Object.keys(osCounts);
+const osValues = Object.values(osCounts);
+const manufacturerLabels = Object.keys(manufacturerCounts);
+const manufacturerValues = Object.values(manufacturerCounts);
+
+// Carrier Pie Chart
+const ctxCarrier = document.getElementById('carrierChart').getContext('2d');
+new Chart(ctxCarrier, {
+  type: 'pie',
+  data: {
+    labels: carrierLabels,
+    datasets: [{
+      data: carrierValues,
+      backgroundColor: ['#ff6384', '#36a2eb', '#cc65fe', '#ffce56', '#32CD32', '#ffa500', '#FF00FF']
+    }]
+  }
+});
+
+// OS Bar Chart
+const ctxOs = document.getElementById('osChart').getContext('2d');
+new Chart(ctxOs, {
+  type: 'bar',
+  data: {
+    labels: osLabels,
+    datasets: [{
+      label: 'OS Versions (by user)',
+      data: osValues,
+      backgroundColor: 'rgba(75, 192, 192, 0.6)'
+    }]
+  },
+  options: {
+    scales: {
+      y: { beginAtZero: true }
+    }
+  }
+});
+
+// Manufacturer Doughnut Chart
+const ctxManufacturer = document.getElementById('manufacturerChart').getContext('2d');
+new Chart(ctxManufacturer, {
+  type: 'doughnut',
+  data: {
+    labels: manufacturerLabels,
+    datasets: [{
+      data: manufacturerValues,
+      backgroundColor: ['#42a5f5', '#66bb6a', '#ffa726', '#ab47bc', '#ec407a', '#d4af37', '#8B008B']
+    }]
+  }
+});
+</script>
+{% endblock %}
