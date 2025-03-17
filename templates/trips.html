@@ -44,6 +44,8 @@
       <div class="col-md-2">
         <select name="route_quality" class="form-select">
           <option value="">-- Route Quality --</option>
+          <option value="Not Assigned" {% if route_quality_filter|lower == "not assigned" %}selected{% endif %}>Not Assigned</option>
+
           <option value="No Logs Trips" {% if route_quality_filter == "No Logs Trips" %}selected{% endif %}>No Logs Trips</option>
           <option value="Trip Points Only Exist" {% if route_quality_filter == "Trip Points Only Exist" %}selected{% endif %}>Trip Points Only Exist</option>
           <option value="Low" {% if route_quality_filter == "Low" %}selected{% endif %}>Low</option>
@@ -79,6 +81,33 @@
           {% endfor %}
         </select>
       </div>
+      <div class="col-md-2">
+        <select name="trip_time_op" class="form-select">
+          <option value="equal" {% if trip_time_op == "equal" %}selected{% endif %}>equal</option>
+          <option value="less than" {% if trip_time_op == "less than" %}selected{% endif %}>less than</option>
+          <option value="more than" {% if trip_time_op == "more than" %}selected{% endif %}>more than</option>
+          <option value="less than or equal" {% if trip_time_op == "less than or equal" %}selected{% endif %}>less than or equal</option>
+          <option value="more than or equal" {% if trip_time_op == "more than or equal" %}selected{% endif %}>more than or equal</option>
+        </select>
+        <input type="text" name="trip_time" class="form-control" placeholder="Trip Time (h)" value="{{ request.args.get('trip_time','') }}" />
+      </div>
+      <div class="col-md-2">
+        <input type="text" name="completed_by" class="form-control" placeholder="Completed By" value="{{ request.args.get('completed_by','') }}" />
+      </div>
+      <div class="col-md-2">
+        <select name="log_count_op" class="form-select">
+          <option value="equal" {% if log_count_op == "equal" %}selected{% endif %}>equal</option>
+          <option value="less than" {% if log_count_op == "less than" %}selected{% endif %}>less than</option>
+          <option value="more than" {% if log_count_op == "more than" %}selected{% endif %}>more than</option>
+          <option value="less than or equal" {% if log_count_op == "less than or equal" %}selected{% endif %}>less than or equal</option>
+          <option value="more than or equal" {% if log_count_op == "more than or equal" %}selected{% endif %}>more than or equal</option>
+        </select>
+        <input type="text" name="log_count" class="form-control" placeholder="Log Count" value="{{ request.args.get('log_count','') }}" />
+      </div>
+      <div class="col-md-2">
+        <input type="text" name="status" class="form-control" placeholder="Status" value="{{ request.args.get('status','') }}" />
+      </div>
+      
       <div class="col-md-2">
         <input type="text" name="export_name" class="form-control" placeholder="Export Name" value="{{ request.args.get('export_name','exported_trips') }}" />
       </div>

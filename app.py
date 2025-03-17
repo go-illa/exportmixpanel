@@ -355,24 +355,35 @@ def update_db():
 @app.route("/export_trips")
 def export_trips():
     """
-    Export filtered trips to XLSX, merging with DB data (route_quality, distances, etc.).
+    Export filtered trips to XLSX, merging with DB data (including trip_time, completed_by,
+    coordinate_count (log count), status, and route_quality), with operator‐based filtering for trip_time
+    and log_count.
     """
     session_local = Session()
+    # Basic filters from the request (note: route_quality filtering will be applied after merging)
     filters = {
         "driver": request.args.get("driver"),
         "trip_id": request.args.get("trip_id"),
-        "route_quality": request.args.get("route_quality"),
         "model": request.args.get("model"),
         "ram": request.args.get("ram"),
         "carrier": request.args.get("carrier"),
         "variance_min": request.args.get("variance_min"),
         "variance_max": request.args.get("variance_max"),
-        "export_name": request.args.get("export_name", "exported_trips")
+        "export_name": request.args.get("export_name", "exported_trips"),
+        "route_quality": request.args.get("route_quality", "").strip()
     }
+    # New filter parameters with operator strings (in English)
+    trip_time = request.args.get("trip_time", "").strip()
+    trip_time_op = request.args.get("trip_time_op", "equal").strip()
+    completed_by_filter = request.args.get("completed_by", "").strip()
+    log_count = request.args.get("log_count", "").strip()
+    log_count_op = request.args.get("log_count_op", "equal").strip()
+    status_filter = request.args.get("status", "").strip()
+
     excel_path = os.path.join("data", "data.xlsx")
     excel_data = load_excel_data(excel_path)
 
-    # Apply filters on the Excel data
+    # Apply basic Excel filters (except route_quality)
     if filters["driver"]:
         excel_data = [row for row in excel_data if str(row.get("UserName", "")).strip() == filters["driver"]]
     if filters["trip_id"]:
@@ -387,10 +398,8 @@ def export_trips():
         excel_data = [row for row in excel_data if str(row.get("RAM", "")).strip() == filters["ram"]]
     if filters["carrier"]:
         excel_data = [row for row in excel_data if str(row.get("carrier", "")).strip().lower() == filters["carrier"].lower()]
-    if filters["route_quality"]:
-        excel_data = [row for row in excel_data if str(row.get("route_quality", "")) == filters["route_quality"]]
 
-    # Merge with DB
+    # Merge Excel data with DB records (this will update/overwrite the route_quality field)
     excel_trip_ids = [row.get("tripId") for row in excel_data if row.get("tripId")]
     db_trips = session_local.query(Trip).filter(Trip.trip_id.in_(excel_trip_ids)).all()
     db_trip_map = {trip.trip_id: trip for trip in db_trips}
@@ -408,6 +417,7 @@ def export_trips():
                 cd = float(db_trip.calculated_distance)
             except (TypeError, ValueError):
                 cd = None
+            # Overwrite with DB value; if quality is missing, it becomes ""
             row["route_quality"] = db_trip.route_quality or ""
             row["manual_distance"] = md if md is not None else ""
             row["calculated_distance"] = cd if cd is not None else ""
@@ -419,12 +429,21 @@ def export_trips():
             else:
                 row["distance_percentage"] = "N/A"
                 row["variance"] = None
+            # New fields
+            row["trip_time"] = db_trip.trip_time if db_trip.trip_time is not None else ""
+            row["completed_by"] = db_trip.completed_by if db_trip.completed_by is not None else ""
+            row["coordinate_count"] = db_trip.coordinate_count if db_trip.coordinate_count is not None else ""
+            row["status"] = db_trip.status if db_trip.status is not None else ""
         else:
             row["route_quality"] = ""
             row["manual_distance"] = ""
             row["calculated_distance"] = ""
             row["distance_percentage"] = "N/A"
             row["variance"] = None
+            row["trip_time"] = ""
+            row["completed_by"] = ""
+            row["coordinate_count"] = ""
+            row["status"] = ""
         merged.append(row)
 
     # Additional variance filters
@@ -441,6 +460,73 @@ def export_trips():
         except ValueError:
             pass
 
+    # Now filter by route_quality based on the merged (DB) value.
+    if filters["route_quality"]:
+        rq_filter = filters["route_quality"].lower().strip()
+        if rq_filter == "not assigned":
+            merged = [r for r in merged if str(r.get("route_quality", "")).strip() == ""]
+        else:
+            merged = [r for r in merged if str(r.get("route_quality", "")).strip().lower() == rq_filter]
+
+    # Helper functions for numeric comparisons
+    def normalize_op(op):
+        op = op.lower().strip()
+        mapping = {
+            "equal": "=",
+            "equals": "=",
+            "=": "=",
+            "less than": "<",
+            "more than": ">",
+            "less than or equal": "<=",
+            "less than or equal to": "<=",
+            "more than or equal": ">=",
+            "more than or equal to": ">="
+        }
+        return mapping.get(op, "=")
+
+    def compare(value, op, threshold):
+        op = normalize_op(op)
+        if op == "=":
+            return value == threshold
+        elif op == "<":
+            return value < threshold
+        elif op == ">":
+            return value > threshold
+        elif op == "<=":
+            return value <= threshold
+        elif op == ">=":
+            return value >= threshold
+        return False
+
+    # Filter by trip_time using operator logic
+    if trip_time:
+        try:
+            tt_value = float(trip_time)
+            merged = [r for r in merged if r.get("trip_time") not in (None, "") and compare(float(r.get("trip_time")), trip_time_op, tt_value)]
+        except ValueError:
+            pass
+
+    # Filter by completed_by (exact, case-insensitive)
+    if completed_by_filter:
+        merged = [r for r in merged if r.get("completed_by") and str(r.get("completed_by")).strip().lower() == completed_by_filter.lower()]
+
+    # Filter by log_count (using coordinate_count) with operator logic
+    if log_count:
+        try:
+            lc_value = int(log_count)
+            merged = [r for r in merged if r.get("coordinate_count") not in (None, "") and compare(int(r.get("coordinate_count")), log_count_op, lc_value)]
+        except ValueError:
+            pass
+
+    # Filter by status (exact, case-insensitive)
+    if status_filter:
+        status_lower = status_filter.lower().strip()
+        if status_lower in ("empty", "not assigned"):
+            merged = [r for r in merged if not r.get("status") or str(r.get("status")).strip() == ""]
+        else:
+            merged = [r for r in merged if r.get("status") and str(r.get("status")).strip().lower() == status_lower]
+
+    # Build the Excel workbook
     wb = Workbook()
     ws = wb.active
     if merged:
@@ -459,9 +545,16 @@ def export_trips():
     return send_file(
         file_stream,
         as_attachment=True,
-        download_name=filename,  # For Flask 2.2+ 
+        download_name=filename,
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
+
+
+
+
+
+
+
 
 # ---------------------------
 # Dashboard (Analytics) - Consolidated by User, with Date Range
@@ -699,34 +792,42 @@ def analytics():
 @app.route("/trips")
 def trips():
     """
-    Trips page with a carrier dropdown (Vodafone, Orange, Etisalat, We),
-    plus your usual filters, pagination, etc.
+    Trips page with filtering (including trip_time, completed_by, log_count, status, and route_quality with
+    operator support for trip_time and log_count) and pagination.
     """
     session_local = Session()
     page = request.args.get("page", type=int, default=1)
     page_size = 100
-    if page<1:
-        page=1
+    if page < 1:
+        page = 1
 
-    driver_filter = request.args.get("driver","").strip()
-    trip_id_search = request.args.get("trip_id","").strip()
-    route_quality_filter = request.args.get("route_quality","").strip()
-    model_filter = request.args.get("model","").strip()
-    ram_filter = request.args.get("ram","").strip()
-    carrier_filter = request.args.get("carrier","").strip()
+    driver_filter = request.args.get("driver", "").strip()
+    trip_id_search = request.args.get("trip_id", "").strip()
+    # Route quality filter from the dropdown
+    route_quality_filter = request.args.get("route_quality", "").strip()
+    model_filter = request.args.get("model", "").strip()
+    ram_filter = request.args.get("ram", "").strip()
+    carrier_filter = request.args.get("carrier", "").strip()
     variance_min = request.args.get("variance_min", type=float)
     variance_max = request.args.get("variance_max", type=float)
+    # New filters
+    trip_time_filter = request.args.get("trip_time", "").strip()
+    trip_time_op = request.args.get("trip_time_op", "equal").strip()
+    completed_by_filter = request.args.get("completed_by", "").strip()
+    log_count_filter = request.args.get("log_count", "").strip()
+    log_count_op = request.args.get("log_count_op", "equal").strip()
+    status_filter = request.args.get("status", "").strip()
 
-    excel_path = os.path.join("data","data.xlsx")
+    excel_path = os.path.join("data", "data.xlsx")
     excel_data = load_excel_data(excel_path)
 
-    # min/max date logic if needed
+    # Determine min and max date for display
     all_times = []
     for row in excel_data:
         if row.get("time"):
-            if isinstance(row["time"],str):
+            if isinstance(row["time"], str):
                 try:
-                    dt = datetime.strptime(row["time"],"%Y-%m-%d %H:%M:%S")
+                    dt = datetime.strptime(row["time"], "%Y-%m-%d %H:%M:%S")
                     all_times.append(dt)
                 except ValueError:
                     pass
@@ -735,28 +836,28 @@ def trips():
     min_date = min(all_times) if all_times else None
     max_date = max(all_times) if all_times else None
 
-    # Filter
+    # Basic Excel filters (except route_quality; we'll apply that later)
     if driver_filter:
-        excel_data = [r for r in excel_data if str(r.get("UserName","")).strip()==driver_filter]
+        excel_data = [r for r in excel_data if str(r.get("UserName", "")).strip() == driver_filter]
     if trip_id_search:
         try:
             tid = int(trip_id_search)
-            excel_data = [r for r in excel_data if r.get("tripId")==tid]
+            excel_data = [r for r in excel_data if r.get("tripId") == tid]
         except ValueError:
             pass
     if model_filter:
-        excel_data = [r for r in excel_data if str(r.get("model","")).strip()==model_filter]
+        excel_data = [r for r in excel_data if str(r.get("model", "")).strip() == model_filter]
     if ram_filter:
-        excel_data = [r for r in excel_data if str(r.get("RAM","")).strip()==ram_filter]
+        excel_data = [r for r in excel_data if str(r.get("RAM", "")).strip() == ram_filter]
     if carrier_filter:
-        new_list=[]
+        new_list = []
         for row in excel_data:
-            norm_car = normalize_carrier(row.get("carrier",""))
-            if norm_car==carrier_filter:
+            norm_car = normalize_carrier(row.get("carrier", ""))
+            if norm_car == carrier_filter:
                 new_list.append(row)
         excel_data = new_list
 
-    # Merge with DB
+    # Merge with DB records
     excel_trip_ids = [r["tripId"] for r in excel_data if r.get("tripId")]
     db_trips = session_local.query(Trip).filter(Trip.trip_id.in_(excel_trip_ids)).all()
     db_map = {t.trip_id: t for t in db_trips}
@@ -796,29 +897,88 @@ def trips():
             row["distance_percentage"] = "N/A"
             row["variance"] = None
 
-
-
+    # Now apply route_quality filter after merging
     if route_quality_filter:
-        excel_data = [r for r in excel_data if r["route_quality"]==route_quality_filter]
+        rq_filter = route_quality_filter.lower().strip()
+        if rq_filter == "not assigned":
+            excel_data = [r for r in excel_data if str(r.get("route_quality", "")).strip() == ""]
+        else:
+            excel_data = [r for r in excel_data if str(r.get("route_quality", "")).strip().lower() == rq_filter]
+
     if variance_min is not None:
-        excel_data = [r for r in excel_data if r.get("variance") is not None and r["variance"]>=variance_min]
+        excel_data = [r for r in excel_data if r.get("variance") is not None and r["variance"] >= variance_min]
     if variance_max is not None:
-        excel_data = [r for r in excel_data if r.get("variance") is not None and r["variance"]<=variance_max]
+        excel_data = [r for r in excel_data if r.get("variance") is not None and r["variance"] <= variance_max]
+
+    # Helper: Normalize operator strings
+    def normalize_op(op):
+        op = op.lower().strip()
+        mapping = {
+            "equal": "=",
+            "equals": "=",
+            "=": "=",
+            "less than": "<",
+            "more than": ">",
+            "less than or equal": "<=",
+            "less than or equal to": "<=",
+            "more than or equal": ">=",
+            "more than or equal to": ">="
+        }
+        return mapping.get(op, "=")
+
+    def compare(value, op, threshold):
+        op = normalize_op(op)
+        if op == "=":
+            return value == threshold
+        elif op == "<":
+            return value < threshold
+        elif op == ">":
+            return value > threshold
+        elif op == "<=":
+            return value <= threshold
+        elif op == ">=":
+            return value >= threshold
+        return False
+
+    # Apply new filters:
+    if trip_time_filter:
+        try:
+            tt_value = float(trip_time_filter)
+            excel_data = [r for r in excel_data if r.get("trip_time") not in (None, "") and compare(float(r.get("trip_time")), trip_time_op, tt_value)]
+        except ValueError:
+            pass
+
+    if completed_by_filter:
+        excel_data = [r for r in excel_data if r.get("completed_by") and str(r.get("completed_by")).strip().lower() == completed_by_filter.lower()]
+
+    if log_count_filter:
+        try:
+            lc_value = int(log_count_filter)
+            excel_data = [r for r in excel_data if r.get("coordinate_count") not in (None, "") and compare(int(r.get("coordinate_count")), log_count_op, lc_value)]
+        except ValueError:
+            pass
+
+    if status_filter:
+        status_lower = status_filter.lower().strip()
+        if status_lower in ("empty", "not assigned"):
+            excel_data = [r for r in excel_data if not r.get("status") or str(r.get("status")).strip() == ""]
+        else:
+            excel_data = [r for r in excel_data if r.get("status") and str(r.get("status")).strip().lower() == status_lower]
 
     total_rows = len(excel_data)
-    total_pages = (total_rows+page_size-1)//page_size if total_rows else 1
-    if page>total_pages and total_pages>0:
-        page=total_pages
-    start = (page-1)*page_size
-    end = start+page_size
+    total_pages = (total_rows + page_size - 1) // page_size if total_rows else 1
+    if page > total_pages and total_pages > 0:
+        page = total_pages
+    start = (page - 1) * page_size
+    end = start + page_size
     page_data = excel_data[start:end]
 
     session_local.close()
 
-    # For the filter dropdown
+    # For filter dropdowns: list drivers and carriers
     full_excel = load_excel_data(excel_path)
-    drivers = sorted({str(r.get("UserName","")).strip() for r in full_excel if r.get("UserName")})
-    carriers_for_dropdown = ["Vodafone","Orange","Etisalat","We"]
+    drivers = sorted({str(r.get("UserName", "")).strip() for r in full_excel if r.get("UserName")})
+    carriers_for_dropdown = ["Vodafone", "Orange", "Etisalat", "We"]
 
     return render_template(
         "trips.html",
@@ -829,8 +989,14 @@ def trips():
         model_filter=model_filter,
         ram_filter=ram_filter,
         carrier_filter=carrier_filter,
-        variance_min=variance_min if variance_min else "",
-        variance_max=variance_max if variance_max else "",
+        variance_min=variance_min if variance_min is not None else "",
+        variance_max=variance_max if variance_max is not None else "",
+        trip_time=trip_time_filter,
+        trip_time_op=trip_time_op,
+        completed_by=completed_by_filter,
+        log_count=log_count_filter,
+        log_count_op=log_count_op,
+        status=status_filter,
         total_rows=total_rows,
         page=page,
         total_pages=total_pages,
@@ -840,6 +1006,13 @@ def trips():
         drivers=drivers,
         carriers_for_dropdown=carriers_for_dropdown
     )
+
+
+
+
+
+
+
 
 @app.route("/trip/<int:trip_id>")
 def trip_detail(trip_id):
