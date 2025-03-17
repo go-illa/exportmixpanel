@@ -22,3 +22,6 @@ class Trip(Base):
     route_quality = Column(String, nullable=True)
     # Optionally store other fields such as driver name, status, etc.
     status = Column(String, nullable=True)
+    # New columns for trip time (in hours) and who completed the trip
+    trip_time = Column(Float, nullable=True)
+    completed_by = Column(String, nullable=True)

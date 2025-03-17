@@ -17,6 +17,9 @@ from flask import (
 from sqlalchemy import create_engine
 from sqlalchemy.orm import scoped_session, sessionmaker
 from datetime import datetime
+import shutil
+import subprocess
+from collections import defaultdict, Counter
 
 from db.config import DB_URI, API_TOKEN, BASE_API_URL, API_EMAIL, API_PASSWORD
 from db.models import Base, Trip
@@ -27,6 +30,25 @@ app.secret_key = "your_secret_key"  # for flashing and session
 # Create engine with SQLite thread-safety; disable expire_on_commit so instances remain populated.
 engine = create_engine(DB_URI, echo=True, connect_args={"check_same_thread": False})
 Session = scoped_session(sessionmaker(bind=engine, expire_on_commit=False))
+
+# --- Begin Migration to update schema with new columns ---
+def migrate_db():
+    try:
+        with engine.connect() as connection:
+            result = connection.execute("PRAGMA table_info(trips)")
+            # Get column names from PRAGMA result; index 1 is the column name
+            columns = [row[1] for row in result]
+            if "trip_time" not in columns:
+                connection.execute("ALTER TABLE trips ADD COLUMN trip_time FLOAT")
+                app.logger.info("Added column trip_time to trips table")
+            if "completed_by" not in columns:
+                connection.execute("ALTER TABLE trips ADD COLUMN completed_by TEXT")
+                app.logger.info("Added column completed_by to trips table")
+    except Exception as e:
+        app.logger.error("Migration error: %s", e)
+
+migrate_db()
+# --- End Migration ---
 
 @app.teardown_appcontext
 def shutdown_session(exception=None):
@@ -127,15 +149,15 @@ def fetch_trip_from_api(trip_id, token=API_TOKEN):
         else:
             return None
 
-def update_trip_db(trip_id):
+def update_trip_db(trip_id, force_update=False):
     """
     Fetch trip from API if needed, update or create DB record.
     """
     session_local = Session()
     try:
         db_trip = session_local.query(Trip).filter_by(trip_id=trip_id).first()
-        # If we already have a completed trip, skip fetching from the API
-        if db_trip and db_trip.status and db_trip.status.lower() == "completed":
+        # If we already have a completed trip and not forcing update, skip fetching from the API
+        if db_trip and not force_update and db_trip.status and db_trip.status.lower() == "completed":
             return db_trip
         api_data = fetch_trip_from_api(trip_id)
         if api_data and "data" in api_data:
@@ -160,7 +182,70 @@ def update_trip_db(trip_id):
                     db_trip.calculated_distance = None
             if api_data.get("used_alternative"):
                 db_trip.supply_partner = True
+
+            # Calculate trip time and determine who completed the trip
+            pickup_time_str = trip_attributes.get("pickupTime")
+            if pickup_time_str:
+                try:
+                    pickup_time = datetime.strptime(pickup_time_str, "%Y-%m-%dT%H:%M:%S.%fZ")
+                except ValueError:
+                    try:
+                        pickup_time = datetime.strptime(pickup_time_str, "%Y-%m-%dT%H:%M:%SZ")
+                    except ValueError:
+                        try:
+                            pickup_time = datetime.strptime(pickup_time_str, "%Y-%m-%d %H:%M:%S")
+                        except Exception as e:
+                            pickup_time = None
+                            print("Error parsing pickupTime:", e)
+            else:
+                pickup_time = None
+
+            candidate = None
+            candidate_time = None
+            for event in trip_attributes.get("activity", []):
+                if "changes" in event:
+                    status_change = event["changes"].get("status")
+                    if status_change and isinstance(status_change, list) and status_change[-1] == "completed":
+                        created_str = event.get("created_at", "").replace(" UTC", "")
+                        if created_str:
+                            parsed = False
+                            for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%fZ"]:
+                                try:
+                                    event_time = datetime.strptime(created_str, fmt)
+                                    parsed = True
+                                    break
+                                except ValueError:
+                                    continue
+                            if parsed:
+                                if candidate_time is None or event_time > candidate_time:
+                                    candidate_time = event_time
+                                    candidate = event
+
+            if pickup_time and candidate_time:
+                try:
+                    trip_duration_hours = (candidate_time - pickup_time).total_seconds() / 3600.0
+                    db_trip.trip_time = trip_duration_hours
+                    app.logger.info(f"Trip {trip_id}: pickup_time={pickup_time}, completion_time={candidate_time}, duration_hours={trip_duration_hours}")
+                except Exception as e:
+                    print("Error calculating trip time:", e)
+                    db_trip.trip_time = None
+            else:
+                db_trip.trip_time = None
+
+            if candidate:
+                user_name = candidate.get("user_name", "")
+                local_part = user_name.split("@")[0] if user_name else ""
+                if local_part.isdigit():
+                    db_trip.completed_by = "driver"
+                else:
+                    db_trip.completed_by = "admin"
+                app.logger.info(f"Trip {trip_id}: completed_by set to {db_trip.completed_by} based on user_name {user_name}")
+            else:
+                db_trip.completed_by = None
+                app.logger.info(f"Trip {trip_id}: No candidate event found, completed_by remains None")
+
             session_local.commit()
+            session_local.refresh(db_trip)
         return db_trip
     except Exception as e:
         print("Error in update_trip_db:", e)
@@ -762,7 +847,7 @@ def update_route_quality():
 def trip_insights():
     """
     Shows route quality counts, distance averages, distance consistency.
-    Respects the data_scope from session so it matches the user’s choice
+    Respects the data_scope from session so it matches the user's choice
     (all data or excel-only).
     """
     session_local = Session()
@@ -814,15 +899,153 @@ def trip_insights():
     avg_manual = total_manual/count_manual if count_manual else 0
     avg_calculated = total_calculated/count_calculated if count_calculated else 0
 
-    session_local.close()
+    excel_map = {r['tripId']: r for r in excel_data if r.get('tripId')}
+    device_specs = defaultdict(lambda: defaultdict(list))
+    for trip in trips_db:
+        trip_id = trip.trip_id
+        quality = trip.route_quality if trip.route_quality else "Unknown"
+        if trip_id in excel_map:
+            row = excel_map[trip_id]
+            device_specs[quality]['model'].append(row.get('model', 'Unknown'))
+            device_specs[quality]['android'].append(row.get('Android Version', 'Unknown'))
+            device_specs[quality]['manufacturer'].append(row.get('manufacturer', 'Unknown'))
+            device_specs[quality]['ram'].append(row.get('RAM', 'Unknown'))
+    automatic_insights = {}
+    for quality, specs in device_specs.items():
+        model_counter = Counter(specs['model'])
+        android_counter = Counter(specs['android'])
+        manufacturer_counter = Counter(specs['manufacturer'])
+        ram_counter = Counter(specs['ram'])
+        most_common_model = model_counter.most_common(1)[0][0] if model_counter else 'N/A'
+        most_common_android = android_counter.most_common(1)[0][0] if android_counter else 'N/A'
+        most_common_manufacturer = manufacturer_counter.most_common(1)[0][0] if manufacturer_counter else 'N/A'
+        most_common_ram = ram_counter.most_common(1)[0][0] if ram_counter else 'N/A'
+        insight = f"For trips with quality '{quality}', most devices are {most_common_manufacturer} {most_common_model} (Android {most_common_android}, RAM {most_common_ram})."
+        if quality.lower() == 'high':
+            insight += " This suggests that high quality trips are associated with robust mobile specs, contributing to accurate tracking."
+        elif quality.lower() == 'low':
+            insight += " This might indicate that lower quality trips could be influenced by devices with suboptimal specifications."
+        automatic_insights[quality] = insight
 
+    # --- New Dashboard Aggregations ---
+    # quality_drilldown: aggregated counts for device specs per quality (using model, android, manufacturer, and ram)
+    quality_drilldown = {}
+    for quality, specs in device_specs.items():
+        quality_drilldown[quality] = {
+            'model': dict(Counter(specs['model'])),
+            'android': dict(Counter(specs['android'])),
+            'manufacturer': dict(Counter(specs['manufacturer'])),
+            'ram': dict(Counter(specs['ram']))
+        }
+
+    # New aggregation: RAM Quality Counts: counts of trip qualities per RAM capacity
+    allowed_ram_str = ["2GB", "3GB", "4GB", "6GB", "8GB", "12GB", "16GB"]
+    ram_quality_counts = {ram: {} for ram in allowed_ram_str}
+    import re
+    for trip in trips_db:
+        row = excel_map.get(trip.trip_id)
+        if row:
+            ram_str = row.get("RAM", "")
+            match = re.search(r'(\d+(?:\.\d+)?)', str(ram_str))
+            if match:
+                ram_value = float(match.group(1))
+                try:
+                    ram_int = int(round(ram_value))
+                except:
+                    continue
+                nearest = min([2,3,4,6,8,12,16], key=lambda v: abs(v - ram_int))
+                ram_label = f"{nearest}GB"
+                quality_val = trip.route_quality if trip.route_quality in ["High", "Moderate", "Low", "No Logs Trips", "Trip Points Only Exist"] else "Empty"
+                if quality_val not in ram_quality_counts[ram_label]:
+                    ram_quality_counts[ram_label][quality_val] = 0
+                ram_quality_counts[ram_label][quality_val] += 1
+
+    # sensor_stats: Calculate sensor availability percentages per quality category
+    sensor_cols = ["Fingerprint Sensor","Accelerometer","Gyro","Proximity Sensor","Compass","Barometer","Background Task Killing Tendency"]
+    sensor_stats = {}
+    for sensor in sensor_cols:
+        sensor_stats[sensor] = {}
+    for trip in trips_db:
+        quality_val = trip.route_quality if trip.route_quality else "Unspecified"
+        row = excel_map.get(trip.trip_id)
+        if row:
+            for sensor in sensor_cols:
+                value = row.get(sensor, "")
+                present = False
+                if isinstance(value, str) and value.lower() == "true":
+                    present = True
+                elif value is True:
+                    present = True
+                if quality_val not in sensor_stats[sensor]:
+                    sensor_stats[sensor][quality_val] = {"present": 0, "total": 0}
+                sensor_stats[sensor][quality_val]["total"] += 1
+                if present:
+                    sensor_stats[sensor][quality_val]["present"] += 1
+
+    # quality_by_os: Distribution of trip quality by Android Version
+    quality_by_os = {}
+    for trip in trips_db:
+        row = excel_map.get(trip.trip_id)
+        if row:
+            os_ver = row.get("Android Version", "Unknown")
+            q = trip.route_quality if trip.route_quality else "Unspecified"
+            if os_ver not in quality_by_os:
+                quality_by_os[os_ver] = {}
+            quality_by_os[os_ver][q] = quality_by_os[os_ver].get(q, 0) + 1
+
+    # manufacturer_quality: Distribution of trip quality by manufacturer
+    manufacturer_quality = {}
+    for trip in trips_db:
+        row = excel_map.get(trip.trip_id)
+        if row:
+            manu = row.get("manufacturer", "Unknown")
+            q = trip.route_quality if trip.route_quality else "Unspecified"
+            if manu not in manufacturer_quality:
+                manufacturer_quality[manu] = {}
+            manufacturer_quality[manu][q] = manufacturer_quality[manu].get(q, 0) + 1
+
+    # carrier_quality: Distribution of trip quality by normalized carrier
+    carrier_quality = {}
+    for trip in trips_db:
+        row = excel_map.get(trip.trip_id)
+        if row:
+            carrier_val = normalize_carrier(row.get("carrier", "Unknown"))
+            q = trip.route_quality if trip.route_quality else "Unspecified"
+            if carrier_val not in carrier_quality:
+                carrier_quality[carrier_val] = {}
+            carrier_quality[carrier_val][q] = carrier_quality[carrier_val].get(q, 0) + 1
+
+    # time_series: Aggregate trip quality counts by date (using 'time' from excel data)
+    time_series = {}
+    for row in excel_data:
+        try:
+            time_str = row.get("time", "")
+            if time_str:
+                dt = datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S")
+                date_str = dt.strftime("%Y-%m-%d")
+                q = row.get("route_quality", "Unspecified")
+                if date_str not in time_series:
+                    time_series[date_str] = {}
+                time_series[date_str][q] = time_series[date_str].get(q, 0) + 1
+        except:
+            continue
+
+    session_local.close()
     return render_template(
         "trip_insights.html",
         quality_counts=quality_counts,
         avg_manual=avg_manual,
         avg_calculated=avg_calculated,
         consistent=consistent,
-        inconsistent=inconsistent
+        inconsistent=inconsistent,
+        automatic_insights=automatic_insights,
+        quality_drilldown=quality_drilldown,
+        ram_quality_counts=ram_quality_counts,
+        sensor_stats=sensor_stats,
+        quality_by_os=quality_by_os,
+        manufacturer_quality=manufacturer_quality,
+        carrier_quality=carrier_quality,
+        time_series=time_series
     )
 
 
@@ -864,6 +1087,39 @@ def apply_filter(filter_name):
     else:
         flash("Saved filter not found.", "danger")
         return redirect(url_for("trips"))
+
+@app.route('/update_date_range', methods=['POST'])
+def update_date_range():
+    start_date = request.form.get('start_date')
+    end_date = request.form.get('end_date')
+    if not start_date or not end_date:
+        return jsonify({'error': 'Both start_date and end_date are required.'}), 400
+
+    # Backup existing consolidated data
+    data_file = 'data/data.xlsx'
+    backup_dir = 'data/backup'
+    if os.path.exists(data_file):
+        if not os.path.exists(backup_dir):
+            os.makedirs(backup_dir)
+        backup_file = os.path.join(backup_dir, f"data_{start_date}_{end_date}.xlsx")
+        try:
+            shutil.move(data_file, backup_file)
+        except Exception as e:
+            return jsonify({'error': 'Failed to backup data file: ' + str(e)}), 500
+
+    # Run exportmix.py with new dates
+    try:
+        subprocess.check_call(['python3', 'exportmix.py', '--start-date', start_date, '--end-date', end_date])
+    except subprocess.CalledProcessError as e:
+        return jsonify({'error': 'Failed to export data: ' + str(e)}), 500
+
+    # Run consolidatemixpanel.py
+    try:
+        subprocess.check_call(['python3', 'consolidatemixpanel.py'])
+    except subprocess.CalledProcessError as e:
+        return jsonify({'error': 'Failed to consolidate data: ' + str(e)}), 500
+
+    return jsonify({'message': 'Data updated successfully.'})
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)
