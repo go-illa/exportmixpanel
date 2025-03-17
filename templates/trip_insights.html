@@ -133,6 +133,38 @@
     <p>Currently, the predictive analytics dashboard is not implemented due to missing data points such as battery capacity and storage details. Once these data are available, advanced predictive modeling and anomaly detection will be implemented to forecast trip quality and identify outliers.</p>
   </div>
 </div>
+
+<!-- New Dashboards -->
+
+<div class="card mb-4 animate__animated animate__fadeInUp">
+  <div class="card-header">
+    Average Trip Duration vs Trip Quality
+  </div>
+  <div class="card-body">
+    <p>This dashboard shows the average trip duration (in hours) for each trip quality category.</p>
+    <canvas id="avgTripDurationChart"></canvas>
+  </div>
+</div>
+
+<div class="card mb-4 animate__animated animate__fadeInUp">
+  <div class="card-header">
+    Completed By vs Trip Quality
+  </div>
+  <div class="card-body">
+    <p>This grouped bar chart displays, for each quality category, how many trips were completed by each type (e.g. driver vs admin).</p>
+    <canvas id="completedByChart"></canvas>
+  </div>
+</div>
+
+<div class="card mb-4 animate__animated animate__fadeInUp">
+  <div class="card-header">
+    Average Logs Count vs Trip Quality
+  </div>
+  <div class="card-body">
+    <p>This bar chart shows the average log count (using coordinate_count) per trip quality category.</p>
+    <canvas id="avgLogsCountChart"></canvas>
+  </div>
+</div>
 <!-- New Dashboard Sections End -->
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -387,6 +419,91 @@ window.timeSeriesChart = new Chart(ctxTimeSeries, {
     responsive: true,
     scales: { y: { beginAtZero: true } }
   }
+});
+
+///////////////////////////////////////////////
+// New Chart: Average Trip Duration vs Trip Quality
+const avgTripDurationData = JSON.parse('{{ avg_trip_duration_quality|tojson }}');
+const durationLabels = Object.keys(avgTripDurationData);
+const durationValues = Object.values(avgTripDurationData);
+const ctxAvgTripDuration = document.getElementById('avgTripDurationChart').getContext('2d');
+new Chart(ctxAvgTripDuration, {
+    type: 'bar',
+    data: {
+        labels: durationLabels,
+        datasets: [{
+            label: 'Average Trip Duration (h)',
+            data: durationValues,
+            backgroundColor: 'rgba(54, 162, 235, 0.7)'
+        }]
+    },
+    options: {
+        scales: {
+            y: { beginAtZero: true }
+        }
+    }
+});
+
+///////////////////////////////////////////////
+// New Chart: Completed By vs Trip Quality
+const completedByData = JSON.parse('{{ completed_by_quality|tojson }}');
+const qualityCategoriesForCompleted = Object.keys(completedByData);
+let completionTypes = new Set();
+qualityCategoriesForCompleted.forEach(q => {
+    Object.keys(completedByData[q]).forEach(type => completionTypes.add(type));
+});
+completionTypes = Array.from(completionTypes);
+const colors = [
+  'rgba(255, 99, 132, 0.7)',
+  'rgba(75, 192, 192, 0.7)',
+  'rgba(255, 206, 86, 0.7)',
+  'rgba(153, 102, 255, 0.7)',
+  'rgba(255, 159, 64, 0.7)'
+];
+const completedByChartDatasets = completionTypes.map((type, index) => {
+    const data = qualityCategoriesForCompleted.map(q => completedByData[q][type] || 0);
+    return {
+        label: type,
+        data: data,
+        backgroundColor: colors[index % colors.length]
+    };
+});
+const ctxCompletedBy = document.getElementById('completedByChart').getContext('2d');
+new Chart(ctxCompletedBy, {
+    type: 'bar',
+    data: {
+        labels: qualityCategoriesForCompleted,
+        datasets: completedByChartDatasets
+    },
+    options: {
+        scales: {
+            x: { stacked: false },
+            y: { beginAtZero: true }
+        }
+    }
+});
+
+///////////////////////////////////////////////
+// New Chart: Average Logs Count vs Trip Quality
+const avgLogsCountData = JSON.parse('{{ avg_logs_count_quality|tojson }}');
+const logsLabels = Object.keys(avgLogsCountData);
+const logsValues = Object.values(avgLogsCountData);
+const ctxAvgLogs = document.getElementById('avgLogsCountChart').getContext('2d');
+new Chart(ctxAvgLogs, {
+    type: 'bar',
+    data: {
+        labels: logsLabels,
+        datasets: [{
+            label: 'Average Logs Count',
+            data: logsValues,
+            backgroundColor: 'rgba(153, 102, 255, 0.7)'
+        }]
+    },
+    options: {
+        scales: {
+            y: { beginAtZero: true }
+        }
+    }
 });
 
 // Auto-update the page every 60 seconds to refresh chart data
