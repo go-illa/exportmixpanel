@@ -165,6 +165,16 @@
     <canvas id="avgLogsCountChart"></canvas>
   </div>
 </div>
+
+<div class="card mb-4 animate__animated animate__fadeInUp">
+  <div class="card-header">
+    App Version vs Trip Quality
+  </div>
+  <div class="card-body">
+    <p>This grouped bar chart shows, for each app version (from the exported data), the distribution of trip quality categories.</p>
+    <canvas id="appVersionChart"></canvas>
+  </div>
+</div>
 <!-- New Dashboard Sections End -->
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -245,7 +255,6 @@ function renderDrilldownChart(quality) {
 document.getElementById('qualitySelect').addEventListener('change', function() {
   renderDrilldownChart(this.value);
 });
-// Initialize drilldown with default selected value
 renderDrilldownChart(document.getElementById('qualitySelect').value);
 
 // RAM Distribution Chart
@@ -506,6 +515,51 @@ new Chart(ctxAvgLogs, {
     }
 });
 
+///////////////////////////////////////////////
+// New Chart: App Version vs Trip Quality
+const appVersionQualityData = JSON.parse('{{ app_version_quality|tojson }}');
+const appVersionLabels = Object.keys(appVersionQualityData);
+let qualityCategoriesApp = new Set();
+appVersionLabels.forEach(appVer => {
+  Object.keys(appVersionQualityData[appVer]).forEach(q => qualityCategoriesApp.add(q));
+});
+qualityCategoriesApp = Array.from(qualityCategoriesApp);
+const appVersionColors = [
+  'rgba(255, 99, 132, 0.7)',
+  'rgba(75, 192, 192, 0.7)',
+  'rgba(255, 206, 86, 0.7)',
+  'rgba(153, 102, 255, 0.7)',
+  'rgba(255, 159, 64, 0.7)'
+];
+const appVersionDatasets = qualityCategoriesApp.map((quality, index) => {
+  const data = appVersionLabels.map(appVer => appVersionQualityData[appVer][quality] || 0);
+  return {
+    label: quality,
+    data: data,
+    backgroundColor: appVersionColors[index % appVersionColors.length]
+  };
+});
+const ctxAppVersion = document.getElementById('appVersionChart').getContext('2d');
+new Chart(ctxAppVersion, {
+  type: 'bar',
+  data: {
+    labels: appVersionLabels,
+    datasets: appVersionDatasets
+  },
+  options: {
+    plugins: {
+      title: {
+        display: true,
+        text: 'App Version vs Trip Quality'
+      }
+    },
+    scales: {
+      x: { stacked: false, ticks: { autoSkip: false } },
+      y: { beginAtZero: true }
+    }
+  }
+});
+
 // Auto-update the page every 60 seconds to refresh chart data
 setInterval(function(){
   location.reload();
@@ -625,6 +679,7 @@ function updateDashboards() {
         window.timeSeriesChart.data.datasets = timeDatasets;
         window.timeSeriesChart.update();
       }
+      // (Optionally, update new dashboards if your API endpoint returns these values.)
     })
     .catch(err => {
       console.error('Error fetching dashboard data:', err);
@@ -635,7 +690,6 @@ function updateDashboards() {
     });
 }
 
-// Store the interval ID in dashboardInterval so it can be cleared if needed
 var dashboardInterval = setInterval(updateDashboards, 30000);
 </script>
 <!-- New Dashboard Sections End -->

@@ -20,11 +20,16 @@ from datetime import datetime
 import shutil
 import subprocess
 from collections import defaultdict, Counter
+import threading
+import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from db.config import DB_URI, API_TOKEN, BASE_API_URL, API_EMAIL, API_PASSWORD
 from db.models import Base, Trip
 
 app = Flask(__name__)
+update_jobs = {}
+executor = ThreadPoolExecutor(max_workers=20)
 app.secret_key = "your_secret_key"  # for flashing and session
 
 # Create engine with SQLite thread-safety; disable expire_on_commit so instances remain populated.
@@ -160,9 +165,13 @@ def fetch_trip_from_api(trip_id, token=API_TOKEN):
                 data = resp.json()
                 data["used_alternative"] = True
                 return data
+            except requests.HTTPError as http_err:
+                if resp.status_code == 404:
+                    print(f"Trip {trip_id} not found with alternative token (404).")
+                else:
+                    print(f"HTTP error with alternative token for trip {trip_id}: {http_err}")
             except Exception as e:
-                print("Error fetching trip data with alternative token:", e)
-                return None
+                print(f"Alternative fetch failed for trip {trip_id}: {e}")
         else:
             return None
 
@@ -203,6 +212,11 @@ def update_trip_db(trip_id, force_update=False):
                         resp.raise_for_status()
                         api_data = resp.json()
                         api_data["used_alternative"] = True
+                    except requests.HTTPError as http_err:
+                        if resp.status_code == 404:
+                            print(f"Trip {trip_id} not found with alternative token (404).")
+                        else:
+                            print(f"HTTP error with alternative token for trip {trip_id}: {http_err}")
                     except Exception as e:
                         print(f"Alternative fetch failed for trip {trip_id}: {e}")
         else:
@@ -222,6 +236,11 @@ def update_trip_db(trip_id, force_update=False):
                             resp.raise_for_status()
                             api_data = resp.json()
                             api_data["used_alternative"] = True
+                        except requests.HTTPError as http_err:
+                            if resp.status_code == 404:
+                                print(f"Trip {trip_id} not found with alternative token (404).")
+                            else:
+                                print(f"HTTP error with alternative token for trip {trip_id}: {http_err}")
                         except Exception as e:
                             print(f"Alternative fetch failed for trip {trip_id}: {e}")
 
@@ -345,7 +364,7 @@ def update_db():
     for row in excel_data:
         trip_id = row.get("tripId")
         if trip_id:
-            db_trip = update_trip_db(trip_id)
+            db_trip = update_trip_db(trip_id, force_update=True)
             if db_trip:
                 updated_ids.append(trip_id)
     session_local.close()
@@ -848,7 +867,11 @@ def trips():
     completed_by_filter = request.args.get("completed_by", "").strip()
     log_count_filter = request.args.get("log_count", "").strip()
     log_count_op = request.args.get("log_count_op", "equal").strip()
-    status_filter = request.args.get("status", "").strip()
+    status_filter = request.args.get("status")
+    if not status_filter:
+        status_filter = "completed"
+    else:
+        status_filter = status_filter.strip()
 
     # New range filter parameters for trip_time and log_count
     trip_time_min = request.args.get("trip_time_min", "").strip()
@@ -859,18 +882,45 @@ def trips():
     excel_path = os.path.join("data", "data.xlsx")
     excel_data = load_excel_data(excel_path)
 
-    # Determine min and max date for display
+    # New code: if start_date and end_date query parameters are provided, filter excel_data by the 'time' field
+    start_date_param = request.args.get('start_date')
+    end_date_param = request.args.get('end_date')
+    if start_date_param and end_date_param:
+        start_date_filter = None
+        end_date_filter = None
+        for fmt in ["%Y-%m-%d", "%d-%m-%Y"]:
+            try:
+                start_date_filter = datetime.strptime(start_date_param, fmt)
+                end_date_filter = datetime.strptime(end_date_param, fmt)
+                break
+            except ValueError:
+                continue
+        if start_date_filter and end_date_filter:
+            filtered_data = []
+            for row in excel_data:
+                if row.get('time'):
+                    try:
+                        row_time = row['time']
+                        if isinstance(row_time, str):
+                            row_time = datetime.strptime(row_time, "%Y-%m-%d %H:%M:%S")
+                        # Compare only the date part
+                        if start_date_filter.date() <= row_time.date() < end_date_filter.date():
+                            filtered_data.append(row)
+                    except Exception as e:
+                        continue
+            excel_data = filtered_data
+
+    # Determine min and max date from the filtered excel_data
     all_times = []
     for row in excel_data:
-        if row.get("time"):
-            if isinstance(row["time"], str):
-                try:
-                    dt = datetime.strptime(row["time"], "%Y-%m-%d %H:%M:%S")
-                    all_times.append(dt)
-                except ValueError:
-                    pass
-            else:
-                all_times.append(row["time"])
+        if row.get('time'):
+            try:
+                row_time = row['time']
+                if isinstance(row_time, str):
+                    row_time = datetime.strptime(row_time, "%Y-%m-%d %H:%M:%S")
+                all_times.append(row_time)
+            except Exception as e:
+                continue
     min_date = min(all_times) if all_times else None
     max_date = max(all_times) if all_times else None
 
@@ -1040,9 +1090,31 @@ def trips():
 
     session_local.close()
 
-    # For filter dropdowns: list drivers and carriers
-    full_excel = load_excel_data(excel_path)
-    drivers = sorted({str(r.get("UserName", "")).strip() for r in full_excel if r.get("UserName")})
+    # For filter dropdowns: list drivers, carriers, and additional options from the Excel file
+    all_excel = load_excel_data(excel_path)
+    statuses = sorted(set(r.get("status", "").strip() for r in all_excel if r.get("status") and r.get("status").strip()))
+    completed_by_options = sorted(set(r.get("completed_by", "").strip() for r in all_excel if r.get("completed_by") and r.get("completed_by").strip()))
+    model_set = {}
+    for r in all_excel:
+        m = r.get("model", "").strip()
+        device = r.get("Device Name", "").strip() if r.get("Device Name") else ""
+        if m:
+            display = m
+            if device:
+                display += " - " + device
+            model_set[m] = display
+    models_options = sorted(model_set.items(), key=lambda x: x[1])
+
+    # Fallback: if the status or completed_by dropdowns are empty, query the database for distinct values.
+    if not statuses:
+        session_temp = Session()
+        statuses = sorted(set(row[0].strip() for row in session_temp.query(Trip.status).filter(Trip.status != None).distinct().all() if row[0] and row[0].strip()))
+        session_temp.close()
+    if not completed_by_options:
+        session_temp = Session()
+        completed_by_options = sorted(set(row[0].strip() for row in session_temp.query(Trip.completed_by).filter(Trip.completed_by != None).distinct().all() if row[0] and row[0].strip()))
+        session_temp.close()
+    drivers = sorted({str(r.get("UserName", "")).strip() for r in all_excel if r.get("UserName")})
     carriers_for_dropdown = ["Vodafone", "Orange", "Etisalat", "We"]
 
     return render_template(
@@ -1069,7 +1141,10 @@ def trips():
         min_date=min_date,
         max_date=max_date,
         drivers=drivers,
-        carriers_for_dropdown=carriers_for_dropdown
+        carriers_for_dropdown=carriers_for_dropdown,
+        statuses=statuses,
+        completed_by_options=completed_by_options,
+        models_options=models_options
     )
 
 
@@ -1170,10 +1245,11 @@ def update_route_quality():
 @app.route("/trip_insights")
 def trip_insights():
     """
-    Shows route quality counts, distance averages, distance consistency, and new dashboards:
+    Shows route quality counts, distance averages, distance consistency, and additional dashboards:
       - Average Trip Duration vs Trip Quality
       - Completed By vs Trip Quality
       - Average Logs Count vs Trip Quality
+      - App Version vs Trip Quality
     Respects the data_scope from session so it matches the user's choice (all data or excel-only).
     """
     session_local = Session()
@@ -1288,9 +1364,22 @@ def trip_insights():
     for quality in logs_sum:
         avg_logs_count_quality[quality] = logs_sum[quality] / logs_count[quality]
 
+    # 4. App Version vs Trip Quality
+    app_version_quality = {}
+    for trip in trips_db:
+        row = excel_map.get(trip.trip_id)
+        if row:
+            app_ver = row.get("app_version", "Unknown")
+        else:
+            app_ver = "Unknown"
+        quality = trip.route_quality if trip.route_quality else "Unspecified"
+        if app_ver not in app_version_quality:
+            app_version_quality[app_ver] = {}
+        app_version_quality[app_ver][quality] = app_version_quality[app_ver].get(quality, 0) + 1
+
     # --- End New Dashboard Aggregations ---
 
-    # quality_drilldown: aggregated counts for device specs per quality (using model, android, manufacturer, and ram)
+    # Existing aggregations below...
     quality_drilldown = {}
     for quality, specs in device_specs.items():
         quality_drilldown[quality] = {
@@ -1300,7 +1389,6 @@ def trip_insights():
             'ram': dict(Counter(specs['ram']))
         }
 
-    # New aggregation: RAM Quality Counts: counts of trip qualities per RAM capacity
     allowed_ram_str = ["2GB", "3GB", "4GB", "6GB", "8GB", "12GB", "16GB"]
     ram_quality_counts = {ram: {} for ram in allowed_ram_str}
     import re
@@ -1407,8 +1495,10 @@ def trip_insights():
         time_series=time_series,
         avg_trip_duration_quality=avg_trip_duration_quality,
         completed_by_quality=completed_by_quality,
-        avg_logs_count_quality=avg_logs_count_quality
+        avg_logs_count_quality=avg_logs_count_quality,
+        app_version_quality=app_version_quality
     )
+
 
 
 
@@ -1483,6 +1573,73 @@ def update_date_range():
         return jsonify({'error': 'Failed to consolidate data: ' + str(e)}), 500
 
     return jsonify({'message': 'Data updated successfully.'})
+
+@app.route("/update_db_async", methods=["POST"])
+def update_db_async():
+    job_id = str(uuid.uuid4())
+    update_jobs[job_id] = {"status": "processing", "total": 0, "completed": 0, "errors": 0}
+    threading.Thread(target=process_update_db_async, args=(job_id,)).start()
+    return jsonify({"job_id": job_id})
+
+def process_update_db_async(job_id):
+    try:
+        excel_path = os.path.join("data", "data.xlsx")
+        excel_data = load_excel_data(excel_path)
+        trips_to_update = [row.get("tripId") for row in excel_data if row.get("tripId")]
+        update_jobs[job_id]["total"] = len(trips_to_update)
+        futures = []
+        for trip_id in trips_to_update:
+            futures.append(executor.submit(update_trip_db, trip_id, True))
+        for future in as_completed(futures):
+            try:
+                future.result()
+            except Exception as e:
+                update_jobs[job_id]["errors"] += 1
+            update_jobs[job_id]["completed"] += 1
+        update_jobs[job_id]["status"] = "completed"
+    except Exception as e:
+        update_jobs[job_id]["status"] = "error"
+        update_jobs[job_id]["error_message"] = str(e)
+
+@app.route("/update_all_db_async", methods=["POST"])
+def update_all_db_async():
+    job_id = str(uuid.uuid4())
+    update_jobs[job_id] = {"status": "processing", "total": 0, "completed": 0, "errors": 0}
+    threading.Thread(target=process_update_all_db_async, args=(job_id,)).start()
+    return jsonify({"job_id": job_id})
+
+def process_update_all_db_async(job_id):
+    try:
+        session_local = Session()
+        trips_in_db = session_local.query(Trip).all()
+        trips_to_update = [trip.trip_id for trip in trips_in_db]
+        update_jobs[job_id]["total"] = len(trips_to_update)
+        futures = []
+        for trip_id in trips_to_update:
+            futures.append(executor.submit(update_trip_db, trip_id, True))
+        for future in as_completed(futures):
+            try:
+                future.result()
+            except Exception as e:
+                update_jobs[job_id]["errors"] += 1
+            update_jobs[job_id]["completed"] += 1
+        update_jobs[job_id]["status"] = "completed"
+        session_local.close()
+    except Exception as e:
+        update_jobs[job_id]["status"] = "error"
+        update_jobs[job_id]["error_message"] = str(e)
+
+@app.route("/update_progress", methods=["GET"])
+def update_progress():
+    job_id = request.args.get("job_id")
+    if job_id in update_jobs:
+        job = update_jobs[job_id]
+        total = job.get("total", 0)
+        completed = job.get("completed", 0)
+        percent = (completed / total * 100) if total > 0 else 0
+        return jsonify({"status": job["status"], "total": total, "completed": completed, "percent": percent})
+    else:
+        return jsonify({"error": "Job not found"}), 404
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)
