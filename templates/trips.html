@@ -144,6 +144,8 @@
         <th>Variance (%)</th>
         <th>Trip ID</th>
         <th>Route Quality</th>
+        <th>Trip Time (h)</th>
+        <th>Completed By</th>
         <th>View Details</th>
       </tr>
     </thead>
@@ -185,6 +187,8 @@
 
           </select>
         </td>
+        <td>{{ trip.trip_time if trip.trip_time is not none else 'N/A' }}</td>
+        <td>{{ trip.completed_by if trip.completed_by is not none else 'N/A' }}</td>
         <td>
           <a class="btn btn-secondary btn-sm" href="{{ url_for('trip_detail', trip_id=trip.tripId) }}">View</a>
         </td>

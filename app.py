@@ -31,6 +31,25 @@ app.secret_key = "your_secret_key"  # for flashing and session
 engine = create_engine(DB_URI, echo=True, connect_args={"check_same_thread": False})
 Session = scoped_session(sessionmaker(bind=engine, expire_on_commit=False))
 
+# --- Begin Migration to update schema with new columns ---
+def migrate_db():
+    try:
+        with engine.connect() as connection:
+            result = connection.execute("PRAGMA table_info(trips)")
+            # Get column names from PRAGMA result; index 1 is the column name
+            columns = [row[1] for row in result]
+            if "trip_time" not in columns:
+                connection.execute("ALTER TABLE trips ADD COLUMN trip_time FLOAT")
+                app.logger.info("Added column trip_time to trips table")
+            if "completed_by" not in columns:
+                connection.execute("ALTER TABLE trips ADD COLUMN completed_by TEXT")
+                app.logger.info("Added column completed_by to trips table")
+    except Exception as e:
+        app.logger.error("Migration error: %s", e)
+
+migrate_db()
+# --- End Migration ---
+
 @app.teardown_appcontext
 def shutdown_session(exception=None):
     Session.remove()
@@ -130,15 +149,15 @@ def fetch_trip_from_api(trip_id, token=API_TOKEN):
         else:
             return None
 
-def update_trip_db(trip_id):
+def update_trip_db(trip_id, force_update=False):
     """
     Fetch trip from API if needed, update or create DB record.
     """
     session_local = Session()
     try:
         db_trip = session_local.query(Trip).filter_by(trip_id=trip_id).first()
-        # If we already have a completed trip, skip fetching from the API
-        if db_trip and db_trip.status and db_trip.status.lower() == "completed":
+        # If we already have a completed trip and not forcing update, skip fetching from the API
+        if db_trip and not force_update and db_trip.status and db_trip.status.lower() == "completed":
             return db_trip
         api_data = fetch_trip_from_api(trip_id)
         if api_data and "data" in api_data:
@@ -163,7 +182,70 @@ def update_trip_db(trip_id):
                     db_trip.calculated_distance = None
             if api_data.get("used_alternative"):
                 db_trip.supply_partner = True
+
+            # Calculate trip time and determine who completed the trip
+            pickup_time_str = trip_attributes.get("pickupTime")
+            if pickup_time_str:
+                try:
+                    pickup_time = datetime.strptime(pickup_time_str, "%Y-%m-%dT%H:%M:%S.%fZ")
+                except ValueError:
+                    try:
+                        pickup_time = datetime.strptime(pickup_time_str, "%Y-%m-%dT%H:%M:%SZ")
+                    except ValueError:
+                        try:
+                            pickup_time = datetime.strptime(pickup_time_str, "%Y-%m-%d %H:%M:%S")
+                        except Exception as e:
+                            pickup_time = None
+                            print("Error parsing pickupTime:", e)
+            else:
+                pickup_time = None
+
+            candidate = None
+            candidate_time = None
+            for event in trip_attributes.get("activity", []):
+                if "changes" in event:
+                    status_change = event["changes"].get("status")
+                    if status_change and isinstance(status_change, list) and status_change[-1] == "completed":
+                        created_str = event.get("created_at", "").replace(" UTC", "")
+                        if created_str:
+                            parsed = False
+                            for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%fZ"]:
+                                try:
+                                    event_time = datetime.strptime(created_str, fmt)
+                                    parsed = True
+                                    break
+                                except ValueError:
+                                    continue
+                            if parsed:
+                                if candidate_time is None or event_time > candidate_time:
+                                    candidate_time = event_time
+                                    candidate = event
+
+            if pickup_time and candidate_time:
+                try:
+                    trip_duration_hours = (candidate_time - pickup_time).total_seconds() / 3600.0
+                    db_trip.trip_time = trip_duration_hours
+                    app.logger.info(f"Trip {trip_id}: pickup_time={pickup_time}, completion_time={candidate_time}, duration_hours={trip_duration_hours}")
+                except Exception as e:
+                    print("Error calculating trip time:", e)
+                    db_trip.trip_time = None
+            else:
+                db_trip.trip_time = None
+
+            if candidate:
+                user_name = candidate.get("user_name", "")
+                local_part = user_name.split("@")[0] if user_name else ""
+                if local_part.isdigit():
+                    db_trip.completed_by = "driver"
+                else:
+                    db_trip.completed_by = "admin"
+                app.logger.info(f"Trip {trip_id}: completed_by set to {db_trip.completed_by} based on user_name {user_name}")
+            else:
+                db_trip.completed_by = None
+                app.logger.info(f"Trip {trip_id}: No candidate event found, completed_by remains None")
+
             session_local.commit()
+            session_local.refresh(db_trip)
         return db_trip
     except Exception as e:
         print("Error in update_trip_db:", e)
