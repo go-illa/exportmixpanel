@@ -111,6 +111,15 @@ V2207,Vivo,Y55 5G,2022,12,True,True,True,True,True,False,High,MediaTek Dimensity
 V2247,Vivo,Y02t,2023,13,False,True,False,True,False,False,High,MediaTek Helio P35,4GB,64GB,5000
 RMX3085,Realme,C21,2021,10,True,True,False,True,True,False,High,MediaTek Helio G35,3GB,32GB,5000
 V2352,Vivo,Y27 4G,2023,13,True,True,False,True,True,False,High,MediaTek Helio G85,4GB,128GB,5000
+RMX3760,Realme,Realme C53,2023,13,True,True,False,True,True,False,High,Unisoc Tiger T612,6GB,128GB,5000
+23053RN02A,Xiaomi,Redmi 12,2023,13,True,True,True,True,True,False,High,Qualcomm Snapdragon 4 Gen 2,8GB,128GB,5000
+SM-A207F,Samsung,Galaxy A20s,2019,9.0 (Pie),True,True,False,True,False,False,Moderate,Qualcomm Snapdragon 450,3GB,32GB,4000
+CPH2641,Oppo,A3 Pro,2024,14,True,True,True,True,True,False,High,MediaTek Dimensity 7050,8GB,256GB,5000
+SM-A135F,Samsung,Galaxy A13 (5G),2021,11,True,True,False,True,False,False,Moderate,MediaTek Dimensity 700,4GB,64GB,5000
+SM-A326B,Samsung,Galaxy A32 5G,2021,11,True,True,True,True,False,False,Moderate,MediaTek Dimensity 720 5G,4GB,64GB,5000
+M2004J19C,Xiaomi,Redmi Note 9 Pro,2020,10,True,True,True,True,True,False,High,Qualcomm Snapdragon 720G,6GB,64GB,5020
+CPH2349,Oppo,Reno7 4G,2022,11.1,True,True,True,True,True,False,High,Qualcomm Snapdragon 680 4G,8GB,128GB,4500
+CPH2471,Oppo,A77s,2022,12.1,True,True,False,True,True,False,High,Qualcomm Snapdragon 680 4G,8GB,128GB,5000
 """
         
         # Read mobile specs into a DataFrame

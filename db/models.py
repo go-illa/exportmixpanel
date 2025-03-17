@@ -18,10 +18,8 @@ class Trip(Base):
     trip_id = Column(Integer, unique=True, nullable=False)
     manual_distance = Column(Float, nullable=True)
     calculated_distance = Column(Float, nullable=True)
-    # route_quality can be 'Low', 'Moderate', 'High', or None
     route_quality = Column(String, nullable=True)
-    # Optionally store other fields such as driver name, status, etc.
     status = Column(String, nullable=True)
-    # New columns for trip time (in hours) and who completed the trip
     trip_time = Column(Float, nullable=True)
     completed_by = Column(String, nullable=True)
+    coordinate_count = Column(Integer, nullable=True)  # New field for log count

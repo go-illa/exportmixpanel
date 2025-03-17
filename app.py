@@ -36,7 +36,6 @@ def migrate_db():
     try:
         with engine.connect() as connection:
             result = connection.execute("PRAGMA table_info(trips)")
-            # Get column names from PRAGMA result; index 1 is the column name
             columns = [row[1] for row in result]
             if "trip_time" not in columns:
                 connection.execute("ALTER TABLE trips ADD COLUMN trip_time FLOAT")
@@ -44,6 +43,9 @@ def migrate_db():
             if "completed_by" not in columns:
                 connection.execute("ALTER TABLE trips ADD COLUMN completed_by TEXT")
                 app.logger.info("Added column completed_by to trips table")
+            if "coordinate_count" not in columns:
+                connection.execute("ALTER TABLE trips ADD COLUMN coordinate_count INTEGER")
+                app.logger.info("Added column coordinate_count to trips table")
     except Exception as e:
         app.logger.error("Migration error: %s", e)
 
@@ -121,6 +123,21 @@ def normalize_carrier(carrier_name):
                 return group
     return carrier_name.title()
 
+
+
+def fetch_coordinates_count(trip_id, token=API_TOKEN):
+    url = f"{BASE_API_URL}/trips/{trip_id}/coordinates"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    try:
+        resp = requests.get(url, headers=headers)
+        resp.raise_for_status()
+        data = resp.json()
+        # Return the 'count' from the attributes; default to 0 if not found
+        return data["data"]["attributes"].get("count", 0)
+    except Exception as e:
+        print(f"Error fetching coordinates for trip {trip_id}: {e}")
+        return None
+
 def fetch_trip_from_api(trip_id, token=API_TOKEN):
     url = f"{BASE_API_URL}/trips/{trip_id}"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
@@ -150,18 +167,68 @@ def fetch_trip_from_api(trip_id, token=API_TOKEN):
             return None
 
 def update_trip_db(trip_id, force_update=False):
-    """
-    Fetch trip from API if needed, update or create DB record.
-    """
     session_local = Session()
+    # Flags to ensure alternative is only tried once
+    tried_alternative_for_main = False
+    tried_alternative_for_coordinate = False
+
+    # Helper to validate field values
+    def is_valid(value):
+        return value is not None and str(value).strip() != "" and str(value).strip().upper() != "N/A"
+
     try:
         db_trip = session_local.query(Trip).filter_by(trip_id=trip_id).first()
-        # If we already have a completed trip and not forcing update, skip fetching from the API
-        if db_trip and not force_update and db_trip.status and db_trip.status.lower() == "completed":
-            return db_trip
+        if db_trip and not force_update:
+            # If all key fields are valid, then we skip re-fetching.
+            if (is_valid(db_trip.status) and
+                is_valid(db_trip.manual_distance) and
+                is_valid(db_trip.calculated_distance) and
+                is_valid(db_trip.trip_time) and
+                is_valid(db_trip.completed_by) and
+                is_valid(db_trip.coordinate_count)):
+                return db_trip
+
+        # --- Fetch main trip data using the primary token ---
         api_data = fetch_trip_from_api(trip_id)
+        # If no data or missing required fields, try alternative once.
+        if not (api_data and "data" in api_data):
+            if not tried_alternative_for_main:
+                tried_alternative_for_main = True
+                alt_token = fetch_api_token_alternative()
+                if alt_token:
+                    headers = {"Authorization": f"Bearer {alt_token}", "Content-Type": "application/json"}
+                    url = f"{BASE_API_URL}/trips/{trip_id}"
+                    try:
+                        resp = requests.get(url, headers=headers)
+                        resp.raise_for_status()
+                        api_data = resp.json()
+                        api_data["used_alternative"] = True
+                    except Exception as e:
+                        print(f"Alternative fetch failed for trip {trip_id}: {e}")
+        else:
+            # Even if data exists, check that required fields are valid.
+            trip_attrs = api_data["data"]["attributes"]
+            if not (is_valid(trip_attrs.get("manualDistance")) and 
+                    is_valid(trip_attrs.get("calculatedDistance")) and 
+                    is_valid(trip_attrs.get("pickupTime"))):
+                if not tried_alternative_for_main:
+                    tried_alternative_for_main = True
+                    alt_token = fetch_api_token_alternative()
+                    if alt_token:
+                        headers = {"Authorization": f"Bearer {alt_token}", "Content-Type": "application/json"}
+                        url = f"{BASE_API_URL}/trips/{trip_id}"
+                        try:
+                            resp = requests.get(url, headers=headers)
+                            resp.raise_for_status()
+                            api_data = resp.json()
+                            api_data["used_alternative"] = True
+                        except Exception as e:
+                            print(f"Alternative fetch failed for trip {trip_id}: {e}")
+
         if api_data and "data" in api_data:
             trip_attributes = api_data["data"]["attributes"]
+
+            # Create or update the trip record.
             if db_trip is None:
                 db_trip = Trip(
                     trip_id=trip_id,
@@ -180,26 +247,22 @@ def update_trip_db(trip_id, force_update=False):
                     db_trip.calculated_distance = float(trip_attributes.get("calculatedDistance") or 0)
                 except ValueError:
                     db_trip.calculated_distance = None
+
             if api_data.get("used_alternative"):
                 db_trip.supply_partner = True
 
-            # Calculate trip time and determine who completed the trip
+            # Process pickupTime.
             pickup_time_str = trip_attributes.get("pickupTime")
-            if pickup_time_str:
-                try:
-                    pickup_time = datetime.strptime(pickup_time_str, "%Y-%m-%dT%H:%M:%S.%fZ")
-                except ValueError:
+            pickup_time = None
+            if pickup_time_str and is_valid(pickup_time_str):
+                for fmt in ["%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d %H:%M:%S"]:
                     try:
-                        pickup_time = datetime.strptime(pickup_time_str, "%Y-%m-%dT%H:%M:%SZ")
+                        pickup_time = datetime.strptime(pickup_time_str, fmt)
+                        break
                     except ValueError:
-                        try:
-                            pickup_time = datetime.strptime(pickup_time_str, "%Y-%m-%d %H:%M:%S")
-                        except Exception as e:
-                            pickup_time = None
-                            print("Error parsing pickupTime:", e)
-            else:
-                pickup_time = None
+                        continue
 
+            # Find candidate event marking completion.
             candidate = None
             candidate_time = None
             for event in trip_attributes.get("activity", []):
@@ -208,15 +271,14 @@ def update_trip_db(trip_id, force_update=False):
                     if status_change and isinstance(status_change, list) and status_change[-1] == "completed":
                         created_str = event.get("created_at", "").replace(" UTC", "")
                         if created_str:
-                            parsed = False
+                            event_time = None
                             for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%fZ"]:
                                 try:
                                     event_time = datetime.strptime(created_str, fmt)
-                                    parsed = True
                                     break
                                 except ValueError:
                                     continue
-                            if parsed:
+                            if event_time:
                                 if candidate_time is None or event_time > candidate_time:
                                     candidate_time = event_time
                                     candidate = event
@@ -243,9 +305,21 @@ def update_trip_db(trip_id, force_update=False):
             else:
                 db_trip.completed_by = None
                 app.logger.info(f"Trip {trip_id}: No candidate event found, completed_by remains None")
+        else:
+            print(f"No API data available for trip {trip_id}")
 
-            session_local.commit()
-            session_local.refresh(db_trip)
+        # --- Fetch the coordinate count ---
+        coordinate_count = fetch_coordinates_count(trip_id)
+        if not is_valid(coordinate_count) and not tried_alternative_for_coordinate:
+            tried_alternative_for_coordinate = True
+            alt_token = fetch_api_token_alternative()
+            if alt_token:
+                coordinate_count = fetch_coordinates_count(trip_id, token=alt_token)
+        if db_trip:
+            db_trip.coordinate_count = coordinate_count
+
+        session_local.commit()
+        session_local.refresh(db_trip)
         return db_trip
     except Exception as e:
         print("Error in update_trip_db:", e)
@@ -253,6 +327,7 @@ def update_trip_db(trip_id, force_update=False):
         return session_local.query(Trip).filter_by(trip_id=trip_id).first()
     finally:
         session_local.close()
+
 
 # ---------------------------
 # Routes
@@ -512,8 +587,9 @@ def analytics():
         c = normalize_carrier(row.get("carrier",""))
         carrier_counts[c] = carrier_counts.get(c,0)+1
 
-        osv = row.get("Android Version","Unknown")
-        os_counts[osv] = os_counts.get(osv,0)+1
+        osv = row.get("Android Version")
+        osv = str(osv) if osv is not None else "Unknown"
+        os_counts[osv] = os_counts.get(osv, 0) + 1
 
         manu = row.get("manufacturer","Unknown")
         manufacturer_counts[manu] = manufacturer_counts.get(manu,0)+1
@@ -690,28 +766,37 @@ def trips():
             try:
                 md = float(tdb.manual_distance)
             except:
-                md=None
+                md = None
             try:
                 cd = float(tdb.calculated_distance)
             except:
-                cd=None
+                cd = None
             row["route_quality"] = tdb.route_quality or ""
             row["manual_distance"] = md if md is not None else ""
             row["calculated_distance"] = cd if cd is not None else ""
-            if md and cd and md!=0:
-                pct = (cd/md)*100
-                row["distance_percentage"]=f"{pct:.2f}%"
-                var = abs(cd-md)/md*100
-                row["variance"]=var
+            row["trip_time"] = tdb.trip_time if tdb.trip_time is not None else ""
+            row["completed_by"] = tdb.completed_by if tdb.completed_by is not None else ""
+            row["coordinate_count"] = tdb.coordinate_count if tdb.coordinate_count is not None else ""
+            row["status"] = tdb.status if tdb.status is not None else ""
+            if md and cd and md != 0:
+                pct = (cd / md) * 100
+                row["distance_percentage"] = f"{pct:.2f}%"
+                var = abs(cd - md) / md * 100
+                row["variance"] = var
             else:
-                row["distance_percentage"]="N/A"
-                row["variance"]=None
+                row["distance_percentage"] = "N/A"
+                row["variance"] = None
         else:
-            row["route_quality"]=""
-            row["manual_distance"]=""
-            row["calculated_distance"]=""
-            row["distance_percentage"]="N/A"
-            row["variance"]=None
+            row["route_quality"] = ""
+            row["manual_distance"] = ""
+            row["calculated_distance"] = ""
+            row["trip_time"] = ""
+            row["completed_by"] = ""
+            row["coordinate_count"] = ""
+            row["distance_percentage"] = "N/A"
+            row["variance"] = None
+
+
 
     if route_quality_filter:
         excel_data = [r for r in excel_data if r["route_quality"]==route_quality_filter]
