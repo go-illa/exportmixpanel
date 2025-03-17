@@ -22,4 +22,6 @@ class Trip(Base):
     status = Column(String, nullable=True)
     trip_time = Column(Float, nullable=True)
     completed_by = Column(String, nullable=True)
-    coordinate_count = Column(Integer, nullable=True)  # New field for log count
+    coordinate_count = Column(Integer, nullable=True)
+    # New field to store lack_of_accuracy tag; True if tag found, False if not, default is None
+    lack_of_accuracy = Column(Boolean, nullable=True, default=None)

@@ -175,6 +175,19 @@
     <canvas id="appVersionChart"></canvas>
   </div>
 </div>
+
+<!-- Insert new card for Lack of Accuracy vs Trip Quality before the New Dashboard Sections End comment -->
+<div class="card mb-4 animate__animated animate__fadeInUp">
+  <div class="card-header">
+    Lack of Accuracy vs Trip Quality
+  </div>
+  <div class="card-body">
+    <p>This chart shows the relationship between the Lack of Accuracy metric and Trip Quality.</p>
+    <canvas id="accuracyChart"></canvas>
+  </div>
+</div>
+<!-- End of Lack of Accuracy Card -->
+
 <!-- New Dashboard Sections End -->
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -189,7 +202,19 @@ const carrierQuality = JSON.parse('{{ carrier_quality|tojson }}');
 const timeSeries = JSON.parse('{{ time_series|tojson }}');
 const ramQualityCounts = JSON.parse('{{ ram_quality_counts|tojson }}');
 
-Chart.defaults.font.size = 14;
+function getUniqueColor(index) {
+    const colors = [
+        'rgba(255, 99, 132, 0.7)',   // Red
+        'rgba(54, 162, 235, 0.7)',   // Blue
+        'rgba(255, 206, 86, 0.7)',   // Yellow
+        'rgba(75, 192, 192, 0.7)',   // Green
+        'rgba(153, 102, 255, 0.7)',  // Purple
+        'rgba(255, 159, 64, 0.7)',   // Orange
+        'rgba(199, 199, 199, 0.7)',  // Grey
+        'rgba(83, 102, 255, 0.7)'    // Extra Blue
+    ];
+    return colors[index % colors.length];
+}
 
 // Trip Quality Distribution - Bar Chart
 const ctxQualityDistribution = document.getElementById('qualityDistributionChart').getContext('2d');
@@ -200,7 +225,7 @@ window.qualityDistributionChart = new Chart(ctxQualityDistribution, {
     datasets: [{
       label: 'Trip Count',
       data: Object.values(qualityDistributionData),
-      backgroundColor: 'rgba(54, 162, 235, 0.7)'
+      backgroundColor: Object.keys(qualityDistributionData).map((_, i) => getUniqueColor(i))
     }]
   },
   options: {
@@ -234,7 +259,7 @@ function renderDrilldownChart(quality) {
       datasets: [{
         label: 'Model Count',
         data: modelData,
-        backgroundColor: 'rgba(255, 99, 132, 0.7)'
+        backgroundColor: labels.map((_, i) => getUniqueColor(i))
       }]
     },
     options: {
@@ -269,11 +294,11 @@ qualityLevels.sort((a, b) => {
   const order = {"High": 1, "Moderate": 2, "Low": 3, "No Logs Trips": 4, "Trip Points Only Exist": 5, "Empty": 6};
   return (order[a] || 7) - (order[b] || 7);
 });
-let datasets = qualityLevels.map(q => {
+let datasets = qualityLevels.map((q, i) => {
   return {
     label: q,
     data: ramLabels.map(ram => ramQualityCounts[ram][q] || 0),
-    backgroundColor: q === "Low" ? "rgba(255, 99, 132, 0.7)" : q === "Moderate" ? "rgba(54, 162, 235, 0.7)" : q === "High" ? "rgba(75, 192, 192, 0.7)" : "rgba(153, 102, 255, 0.7)"
+    backgroundColor: getUniqueColor(i)
   };
 });
 const ctxRam = document.getElementById('ramChart').getContext('2d');
@@ -301,7 +326,7 @@ window.ramChart = new Chart(ctxRam, {
 // Sensor & Feature Availability Chart
 const sensorLabels = Object.keys(sensorStats["Fingerprint Sensor"] || {});
 let sensorDatasets = [];
-Object.keys(sensorStats).forEach(sensor => {
+Object.keys(sensorStats).forEach((sensor, index) => {
   const data = sensorLabels.map(q => {
     if(sensorStats[sensor][q]) {
       return Math.round((sensorStats[sensor][q].present / sensorStats[sensor][q].total) * 100);
@@ -311,7 +336,7 @@ Object.keys(sensorStats).forEach(sensor => {
   sensorDatasets.push({
     label: sensor,
     data: data,
-    backgroundColor: 'rgba(153, 102, 255, 0.7)'
+    backgroundColor: getUniqueColor(index)
   });
 });
 const ctxSensor = document.getElementById('sensorChart').getContext('2d');
@@ -337,12 +362,12 @@ const osLabels = Object.keys(qualityByOs);
 const osDatasets = [];
 const qualityCategories = new Set();
 Object.values(qualityByOs).forEach(obj => { Object.keys(obj).forEach(q => qualityCategories.add(q)); });
-qualityCategories.forEach(q => {
+Array.from(qualityCategories).forEach((q, index) => {
   const data = osLabels.map(os => qualityByOs[os][q] || 0);
   osDatasets.push({
     label: q,
     data: data,
-    backgroundColor: 'rgba(255, 206, 86, 0.7)'
+    backgroundColor: getUniqueColor(index)
   });
 });
 const ctxOsQuality = document.getElementById('osQualityChart').getContext('2d');
@@ -361,12 +386,12 @@ const manuLabels = Object.keys(manufacturerQuality);
 const manuDatasets = [];
 const manuQualityCategories = new Set();
 Object.values(manufacturerQuality).forEach(obj => { Object.keys(obj).forEach(q => manuQualityCategories.add(q)); });
-manuQualityCategories.forEach(q => {
+manuQualityCategories.forEach((q, index) => {
   const data = manuLabels.map(manu => manufacturerQuality[manu][q] || 0);
   manuDatasets.push({
     label: q,
     data: data,
-    backgroundColor: 'rgba(54, 162, 235, 0.7)'
+    backgroundColor: getUniqueColor(index)
   });
 });
 const ctxManufacturer = document.getElementById('manufacturerChart').getContext('2d');
@@ -385,12 +410,12 @@ const carrierLabels = Object.keys(carrierQuality);
 const carrierDatasets = [];
 const carrierQualityCategories = new Set();
 Object.values(carrierQuality).forEach(obj => { Object.keys(obj).forEach(q => carrierQualityCategories.add(q)); });
-carrierQualityCategories.forEach(q => {
+carrierQualityCategories.forEach((q, index) => {
   const data = carrierLabels.map(carrier => carrierQuality[carrier][q] || 0);
   carrierDatasets.push({
     label: q,
     data: data,
-    backgroundColor: 'rgba(255, 99, 132, 0.7)'
+    backgroundColor: getUniqueColor(index)
   });
 });
 const ctxCarrier = document.getElementById('carrierChart').getContext('2d');
@@ -409,13 +434,13 @@ const timeLabels = Object.keys(timeSeries);
 const timeDatasets = [];
 const timeQualityCategories = new Set();
 Object.values(timeSeries).forEach(obj => { Object.keys(obj).forEach(q => timeQualityCategories.add(q)); });
-timeQualityCategories.forEach(q => {
+timeQualityCategories.forEach((q, index) => {
   const datasetData = timeLabels.map(date => timeSeries[date][q] || 0);
   timeDatasets.push({
     label: q,
     data: datasetData,
-    backgroundColor: 'rgba(75, 192, 192, 0.7)',
-    borderColor: 'rgba(75, 192, 192, 1)',
+    backgroundColor: getUniqueColor(index),
+    borderColor: getUniqueColor(index).replace('0.7', '1'),
     fill: false
   });
 });
@@ -443,7 +468,7 @@ new Chart(ctxAvgTripDuration, {
         datasets: [{
             label: 'Average Trip Duration (h)',
             data: durationValues,
-            backgroundColor: 'rgba(54, 162, 235, 0.7)'
+            backgroundColor: durationLabels.map((_, i) => getUniqueColor(i))
         }]
     },
     options: {
@@ -462,19 +487,12 @@ qualityCategoriesForCompleted.forEach(q => {
     Object.keys(completedByData[q]).forEach(type => completionTypes.add(type));
 });
 completionTypes = Array.from(completionTypes);
-const colors = [
-  'rgba(255, 99, 132, 0.7)',
-  'rgba(75, 192, 192, 0.7)',
-  'rgba(255, 206, 86, 0.7)',
-  'rgba(153, 102, 255, 0.7)',
-  'rgba(255, 159, 64, 0.7)'
-];
 const completedByChartDatasets = completionTypes.map((type, index) => {
     const data = qualityCategoriesForCompleted.map(q => completedByData[q][type] || 0);
     return {
         label: type,
         data: data,
-        backgroundColor: colors[index % colors.length]
+        backgroundColor: getUniqueColor(index)
     };
 });
 const ctxCompletedBy = document.getElementById('completedByChart').getContext('2d');
@@ -505,7 +523,7 @@ new Chart(ctxAvgLogs, {
         datasets: [{
             label: 'Average Logs Count',
             data: logsValues,
-            backgroundColor: 'rgba(153, 102, 255, 0.7)'
+            backgroundColor: logsLabels.map((_, i) => getUniqueColor(i))
         }]
     },
     options: {
@@ -524,19 +542,12 @@ appVersionLabels.forEach(appVer => {
   Object.keys(appVersionQualityData[appVer]).forEach(q => qualityCategoriesApp.add(q));
 });
 qualityCategoriesApp = Array.from(qualityCategoriesApp);
-const appVersionColors = [
-  'rgba(255, 99, 132, 0.7)',
-  'rgba(75, 192, 192, 0.7)',
-  'rgba(255, 206, 86, 0.7)',
-  'rgba(153, 102, 255, 0.7)',
-  'rgba(255, 159, 64, 0.7)'
-];
 const appVersionDatasets = qualityCategoriesApp.map((quality, index) => {
   const data = appVersionLabels.map(appVer => appVersionQualityData[appVer][quality] || 0);
   return {
     label: quality,
     data: data,
-    backgroundColor: appVersionColors[index % appVersionColors.length]
+    backgroundColor: getUniqueColor(index)
   };
 });
 const ctxAppVersion = document.getElementById('appVersionChart').getContext('2d');
@@ -558,6 +569,33 @@ new Chart(ctxAppVersion, {
       y: { beginAtZero: true }
     }
   }
+});
+
+/* New Chart: Lack of Accuracy vs Trip Quality */
+const accuracyData = JSON.parse('{{ accuracy_data|default({})|tojson }}');
+const ctxAccuracy = document.getElementById('accuracyChart').getContext('2d');
+window.accuracyChart = new Chart(ctxAccuracy, {
+    type: 'bar',
+    data: {
+        labels: Object.keys(accuracyData),
+        datasets: [{
+            label: 'Average Lack of Accuracy',
+            data: Object.values(accuracyData),
+            backgroundColor: Object.keys(accuracyData).map((_, i) => getUniqueColor(i))
+        }]
+    },
+    options: {
+        plugins: {
+            title: {
+                display: true,
+                text: 'Lack of Accuracy vs Trip Quality'
+            }
+        },
+        scales: {
+            x: { ticks: { autoSkip: false }, title: { display: true, text: 'Trip Quality' } },
+            y: { beginAtZero: true, title: { display: true, text: 'Avg Lack of Accuracy' } }
+        }
+    }
 });
 
 // Auto-update the page every 60 seconds to refresh chart data
@@ -589,7 +627,7 @@ function updateDashboards() {
         const sensorLabels = Object.keys(data.sensor_stats["Fingerprint Sensor"] || {});
         window.sensorChart.data.labels = sensorLabels;
         let sensorDatasets = [];
-        Object.keys(data.sensor_stats).forEach(sensor => {
+        Object.keys(data.sensor_stats).forEach((sensor, index) => {
           const sensorPercentages = sensorLabels.map(q => {
             if(data.sensor_stats[sensor][q]) {
               return Math.round((data.sensor_stats[sensor][q].present / data.sensor_stats[sensor][q].total) * 100);
@@ -599,7 +637,7 @@ function updateDashboards() {
           sensorDatasets.push({
              label: sensor,
              data: sensorPercentages,
-             backgroundColor: 'rgba(153, 102, 255, 0.7)'
+             backgroundColor: getUniqueColor(index)
           });
         });
         window.sensorChart.data.datasets = sensorDatasets;
@@ -612,12 +650,12 @@ function updateDashboards() {
         let osDatasets = [];
         let qualityCategories = new Set();
         Object.values(data.quality_by_os).forEach(obj => { Object.keys(obj).forEach(q => qualityCategories.add(q)); });
-        qualityCategories.forEach(q => {
+        Array.from(qualityCategories).forEach((q, index) => {
           const datasetData = osLabels.map(os => data.quality_by_os[os][q] || 0);
           osDatasets.push({
             label: q,
             data: datasetData,
-            backgroundColor: 'rgba(255, 206, 86, 0.7)'
+            backgroundColor: getUniqueColor(index)
           });
         });
         window.osQualityChart.data.datasets = osDatasets;
@@ -630,12 +668,12 @@ function updateDashboards() {
         let manuDatasets = [];
         let manuQualityCategories = new Set();
         Object.values(data.manufacturer_quality).forEach(obj => { Object.keys(obj).forEach(q => manuQualityCategories.add(q)); });
-        manuQualityCategories.forEach(q => {
+        Array.from(manuQualityCategories).forEach((q, index) => {
           const datasetData = manuLabels.map(manu => data.manufacturer_quality[manu][q] || 0);
           manuDatasets.push({
             label: q,
             data: datasetData,
-            backgroundColor: 'rgba(54, 162, 235, 0.7)'
+            backgroundColor: getUniqueColor(index)
           });
         });
         window.manufacturerChart.data.datasets = manuDatasets;
@@ -648,12 +686,12 @@ function updateDashboards() {
         let carrierDatasets = [];
         let carrierQualityCategories = new Set();
         Object.values(data.carrier_quality).forEach(obj => { Object.keys(obj).forEach(q => carrierQualityCategories.add(q)); });
-        carrierQualityCategories.forEach(q => {
+        Array.from(carrierQualityCategories).forEach((q, index) => {
           const datasetData = carrierLabels.map(carrier => data.carrier_quality[carrier][q] || 0);
           carrierDatasets.push({
             label: q,
             data: datasetData,
-            backgroundColor: 'rgba(255, 99, 132, 0.7)'
+            backgroundColor: getUniqueColor(index)
           });
         });
         window.carrierChart.data.datasets = carrierDatasets;
@@ -666,20 +704,26 @@ function updateDashboards() {
         let timeDatasets = [];
         let timeQualityCategories = new Set();
         Object.values(data.time_series).forEach(obj => { Object.keys(obj).forEach(q => timeQualityCategories.add(q)); });
-        timeQualityCategories.forEach(q => {
+        Array.from(timeQualityCategories).forEach((q, index) => {
           const datasetData = timeLabels.map(date => data.time_series[date][q] || 0);
           timeDatasets.push({
             label: q,
             data: datasetData,
-            backgroundColor: 'rgba(75, 192, 192, 0.7)',
-            borderColor: 'rgba(75, 192, 192, 1)',
+            backgroundColor: getUniqueColor(index),
+            borderColor: getUniqueColor(index).replace('0.7', '1'),
             fill: false
           });
         });
         window.timeSeriesChart.data.datasets = timeDatasets;
         window.timeSeriesChart.update();
       }
-      // (Optionally, update new dashboards if your API endpoint returns these values.)
+      // Update Accuracy Chart
+      if(window.accuracyChart) {
+        window.accuracyChart.data.labels = Object.keys(data.accuracy_data);
+        window.accuracyChart.data.datasets[0].data = Object.values(data.accuracy_data);
+        window.accuracyChart.data.datasets[0].backgroundColor = Object.keys(data.accuracy_data).map((_, i) => getUniqueColor(i));
+        window.accuracyChart.update();
+      }
     })
     .catch(err => {
       console.error('Error fetching dashboard data:', err);

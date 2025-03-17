@@ -51,6 +51,9 @@ def migrate_db():
             if "coordinate_count" not in columns:
                 connection.execute("ALTER TABLE trips ADD COLUMN coordinate_count INTEGER")
                 app.logger.info("Added column coordinate_count to trips table")
+            if "lack_of_accuracy" not in columns:
+                connection.execute("ALTER TABLE trips ADD COLUMN lack_of_accuracy BOOLEAN")
+                app.logger.info("Added column lack_of_accuracy to trips table")
     except Exception as e:
         app.logger.error("Migration error: %s", e)
 
@@ -128,7 +131,32 @@ def normalize_carrier(carrier_name):
                 return group
     return carrier_name.title()
 
-
+# NEW FUNCTION: determine_completed_by
+# This function inspects an activity list to find the latest event where the status changes to 'completed'
+# and returns the corresponding user_type (admin or driver), or None if not found.
+def determine_completed_by(activity_list):
+    best_candidate = None
+    best_time = None
+    for event in activity_list:
+        changes = event.get("changes", {})
+        status_change = changes.get("status")
+        if status_change and isinstance(status_change, list) and len(status_change) >= 2:
+            if str(status_change[-1]).lower() == "completed":
+                created_str = event.get("created_at", "").replace(" UTC", "")
+                event_time = None
+                for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%fZ"]:
+                    try:
+                        event_time = datetime.strptime(created_str, fmt)
+                        break
+                    except ValueError:
+                        continue
+                if event_time:
+                    if best_time is None or event_time > best_time:
+                        best_time = event_time
+                        best_candidate = event
+    if best_candidate:
+        return best_candidate.get("user_type", None)
+    return None
 
 def fetch_coordinates_count(trip_id, token=API_TOKEN):
     url = f"{BASE_API_URL}/trips/{trip_id}/coordinates"
@@ -281,51 +309,22 @@ def update_trip_db(trip_id, force_update=False):
                     except ValueError:
                         continue
 
-            # Find candidate event marking completion.
-            candidate = None
-            candidate_time = None
-            for event in trip_attributes.get("activity", []):
-                if "changes" in event:
-                    status_change = event["changes"].get("status")
-                    if status_change and isinstance(status_change, list) and status_change[-1] == "completed":
-                        created_str = event.get("created_at", "").replace(" UTC", "")
-                        if created_str:
-                            event_time = None
-                            for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%fZ"]:
-                                try:
-                                    event_time = datetime.strptime(created_str, fmt)
-                                    break
-                                except ValueError:
-                                    continue
-                            if event_time:
-                                if candidate_time is None or event_time > candidate_time:
-                                    candidate_time = event_time
-                                    candidate = event
-
-            if pickup_time and candidate_time:
-                try:
-                    trip_duration_hours = (candidate_time - pickup_time).total_seconds() / 3600.0
-                    db_trip.trip_time = trip_duration_hours
-                    app.logger.info(f"Trip {trip_id}: pickup_time={pickup_time}, completion_time={candidate_time}, duration_hours={trip_duration_hours}")
-                except Exception as e:
-                    print("Error calculating trip time:", e)
-                    db_trip.trip_time = None
-            else:
-                db_trip.trip_time = None
-
-            if candidate:
-                user_name = candidate.get("user_name", "")
-                local_part = user_name.split("@")[0] if user_name else ""
-                if local_part.isdigit():
-                    db_trip.completed_by = "driver"
-                else:
-                    db_trip.completed_by = "admin"
-                app.logger.info(f"Trip {trip_id}: completed_by set to {db_trip.completed_by} based on user_name {user_name}")
+            # Determine who completed the trip using the latest status change to 'completed'
+            comp_by = determine_completed_by(trip_attributes.get("activity", []))
+            if comp_by is not None:
+                db_trip.completed_by = comp_by
+                app.logger.info(f"Trip {trip_id}: completed_by set to {db_trip.completed_by} based on activity events")
             else:
                 db_trip.completed_by = None
-                app.logger.info(f"Trip {trip_id}: No candidate event found, completed_by remains None")
-        else:
-            print(f"No API data available for trip {trip_id}")
+                app.logger.info(f"Trip {trip_id}: No completion event found, completed_by remains None")
+
+            # Update lack_of_accuracy field if force_update is True or if not set
+            if force_update or db_trip.lack_of_accuracy is None:
+                tags_count = api_data["data"]["attributes"].get("tagsCount", [])
+                if isinstance(tags_count, list) and any(item.get("tag_name") == "lack_of_accuracy" and int(item.get("count", 0)) > 0 for item in tags_count):
+                    db_trip.lack_of_accuracy = True
+                else:
+                    db_trip.lack_of_accuracy = False
 
         # --- Fetch the coordinate count ---
         coordinate_count = fetch_coordinates_count(trip_id)
@@ -375,7 +374,7 @@ def update_db():
 def export_trips():
     """
     Export filtered trips to XLSX, merging with DB data (including trip_time, completed_by,
-    coordinate_count (log count), status, and route_quality). Supports both operator-based filtering 
+    coordinate_count (log count), status, route_quality, and lack_of_accuracy). Supports both operator-based filtering 
     and new range filtering for trip_time and log_count.
     """
     session_local = Session()
@@ -458,6 +457,7 @@ def export_trips():
             row["completed_by"] = db_trip.completed_by if db_trip.completed_by is not None else ""
             row["coordinate_count"] = db_trip.coordinate_count if db_trip.coordinate_count is not None else ""
             row["status"] = db_trip.status if db_trip.status is not None else ""
+            row["lack_of_accuracy"] = db_trip.lack_of_accuracy if db_trip.lack_of_accuracy is not None else ""
         else:
             row["route_quality"] = ""
             row["manual_distance"] = ""
@@ -468,6 +468,7 @@ def export_trips():
             row["completed_by"] = ""
             row["coordinate_count"] = ""
             row["status"] = ""
+            row["lack_of_accuracy"] = ""
         merged.append(row)
 
     # Additional variance filters
@@ -967,6 +968,7 @@ def trips():
             row["completed_by"] = tdb.completed_by if tdb.completed_by is not None else ""
             row["coordinate_count"] = tdb.coordinate_count if tdb.coordinate_count is not None else ""
             row["status"] = tdb.status if tdb.status is not None else ""
+            row["lack_of_accuracy"] = tdb.lack_of_accuracy if tdb.lack_of_accuracy is not None else ""
             if md and cd and md != 0:
                 pct = (cd / md) * 100
                 row["distance_percentage"] = f"{pct:.2f}%"
@@ -982,8 +984,8 @@ def trips():
             row["trip_time"] = ""
             row["completed_by"] = ""
             row["coordinate_count"] = ""
-            row["distance_percentage"] = "N/A"
-            row["variance"] = None
+            row["status"] = ""
+            row["lack_of_accuracy"] = ""
 
     # Now apply route_quality filter after merging
     if route_quality_filter:
@@ -1329,8 +1331,23 @@ def trip_insights():
             insight += " This might indicate that lower quality trips could be influenced by devices with suboptimal specifications."
         automatic_insights[quality] = insight
 
-    # --- New Dashboard Aggregations ---
+    # New Aggregation: Lack of Accuracy vs Trip Quality
+    accuracy_data = {}
+    for trip in trips_db:
+        quality = trip.route_quality if trip.route_quality else "Unspecified"
+        if quality not in accuracy_data:
+            accuracy_data[quality] = {"count": 0, "lack_count": 0}
+        accuracy_data[quality]["count"] += 1
+        if trip.lack_of_accuracy:
+            accuracy_data[quality]["lack_count"] += 1
+    accuracy_percentages = {}
+    for quality, data in accuracy_data.items():
+        count = data["count"]
+        lack = data["lack_count"]
+        percentage = round((lack / count) * 100, 2) if count > 0 else 0
+        accuracy_percentages[quality] = percentage
 
+    # --- New Dashboard Aggregations ---
     # 1. Average Trip Duration vs Trip Quality
     trip_duration_sum = {}
     trip_duration_count = {}
@@ -1496,7 +1513,8 @@ def trip_insights():
         avg_trip_duration_quality=avg_trip_duration_quality,
         completed_by_quality=completed_by_quality,
         avg_logs_count_quality=avg_logs_count_quality,
-        app_version_quality=app_version_quality
+        app_version_quality=app_version_quality,
+        accuracy_data=accuracy_percentages
     )
 
 

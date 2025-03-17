@@ -152,13 +152,16 @@
         </select>
       </div>
       <div class="col-md-2">
+        <input type="text" name="lack_of_accuracy" class="form-control" placeholder="Lack of Accuracy" value="{{ request.args.get('lack_of_accuracy','') }}" />
+      </div>
+      <div class="col-md-2">
         <input type="text" name="export_name" class="form-control" placeholder="Export Name" value="{{ request.args.get('export_name','exported_trips') }}" />
       </div>
       <div class="col-md-2">
         <button type="submit" class="btn btn-primary w-100">Filter</button>
       </div>
       <div class="col-md-2">
-        <a href="{{ url_for('export_trips', trip_id=trip_id_search, route_quality=route_quality_filter, model=model_filter, ram=ram_filter, carrier=carrier_filter, variance_min=variance_min, variance_max=variance_max, driver=driver_filter, trip_time_min=request.args.get('trip_time_min',''), trip_time_max=request.args.get('trip_time_max',''), trip_time_op=request.args.get('trip_time_op','equal'), trip_time=request.args.get('trip_time',''), completed_by=request.args.get('completed_by',''), log_count_min=request.args.get('log_count_min',''), log_count_max=request.args.get('log_count_max',''), log_count_op=request.args.get('log_count_op','equal'), log_count=request.args.get('log_count',''), status=request.args.get('status',''), export_name=request.args.get('export_name','exported_trips') ) }}" class="btn btn-success w-100">Export XLSX</a>
+        <a href="{{ url_for('export_trips', trip_id=trip_id_search, route_quality=route_quality_filter, model=model_filter, ram=ram_filter, carrier=carrier_filter, variance_min=variance_min, variance_max=variance_max, driver=driver_filter, trip_time_min=request.args.get('trip_time_min',''), trip_time_max=request.args.get('trip_time_max',''), trip_time_op=request.args.get('trip_time_op','equal'), trip_time=request.args.get('trip_time',''), completed_by=request.args.get('completed_by',''), log_count_min=request.args.get('log_count_min',''), log_count_max=request.args.get('log_count_max',''), log_count_op=request.args.get('log_count_op','equal'), log_count=request.args.get('log_count',''), status=request.args.get('status',''), lack_of_accuracy=request.args.get('lack_of_accuracy',''), export_name=request.args.get('export_name','exported_trips') ) }}" class="btn btn-success w-100">Export XLSX</a>
       </div>
     </form>
   </div>
@@ -200,6 +203,7 @@
           <th>Completed By</th>
           <th>Log Count</th>
           <th>Status</th>
+          <th>Lack of Accuracy</th>
           <th>View Details</th>
         </tr>
       </thead>
@@ -243,6 +247,9 @@
           <td>{{ trip.completed_by if trip.completed_by is not none else 'N/A' }}</td>
           <td>{{ trip.coordinate_count if trip.coordinate_count != "" else 'N/A' }}</td>
           <td>{{ trip.status if trip.status is not none else 'N/A' }}</td>
+          <td>
+            {{ trip.lack_of_accuracy if trip.lack_of_accuracy is not none else 'None' }}
+          </td>
           <td>
             <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('trip_detail', trip_id=trip.tripId) }}">View</a>
           </td>
