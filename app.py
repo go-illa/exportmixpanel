@@ -29,7 +29,7 @@ from db.models import Base, Trip
 
 app = Flask(__name__)
 update_jobs = {}
-executor = ThreadPoolExecutor(max_workers=20)
+executor = ThreadPoolExecutor(max_workers=40)
 app.secret_key = "your_secret_key"  # for flashing and session
 
 # Create engine with SQLite thread-safety; disable expire_on_commit so instances remain populated.
