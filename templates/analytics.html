@@ -179,6 +179,18 @@
   </div>
 </div>
 
+<div class="card my-3">
+  <div class="card-body">
+    <h5 class="card-title">Mobile and Trip Quality Insights</h5>
+    <p>After analyzing mobile device specifications and trip quality data, several trends have emerged:</p>
+    <ul>
+      <li><strong>Performance & Sensor Integration:</strong> Devices with newer Android versions and higher RAM tend to produce high-quality trip data due to enhanced sensor support.</li>
+      <li><strong>Model Impact:</strong> High quality trips are associated with advanced device models, while older models often correlate with lower trip quality.</li>
+      <li><strong>Optimization Opportunities:</strong> These insights can be leveraged to diagnose issues and guide recommendations for device upgrades to improve data accuracy.</li>
+    </ul>
+  </div>
+</div>
+
 <hr/>
 <!-- Consolidated Data Per User -->
 <h2 class="mt-4">Consolidated Data Per User</h2>
@@ -270,28 +282,6 @@ new Chart(ctxManufacturer, {
 });
 </script>
 
-<!-- Date Range Update Form Start -->
-<div class="card my-3">
-  <div class="card-body">
-    <h5 class="card-title">Update Date Range</h5>
-    <form id="dateRangeForm" class="d-flex align-items-center">
-      <div class="me-2">
-        <label for="start_date" class="form-label">Start Date:</label>
-        <input type="date" id="start_date" name="start_date" class="form-control">
-      </div>
-      <div class="me-2">
-        <label for="end_date" class="form-label">End Date:</label>
-        <input type="date" id="end_date" name="end_date" class="form-control">
-      </div>
-      <button type="button" id="update_button" class="btn btn-primary">Update Date Range</button>
-    </form>
-    <div id="loading_spinner" class="mt-3" style="display: none;">
-      <div class="spinner-border text-primary" role="status">
-        <span class="visually-hidden">Loading...</span>
-      </div>
-    </div>
-  </div>
-</div>
 <script>
 document.getElementById('update_button').addEventListener('click', function() {
     var startDate = document.getElementById('start_date').value;
