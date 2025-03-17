@@ -356,8 +356,8 @@ def update_db():
 def export_trips():
     """
     Export filtered trips to XLSX, merging with DB data (including trip_time, completed_by,
-    coordinate_count (log count), status, and route_quality), with operator‐based filtering for trip_time
-    and log_count.
+    coordinate_count (log count), status, and route_quality). Supports both operator-based filtering 
+    and new range filtering for trip_time and log_count.
     """
     session_local = Session()
     # Basic filters from the request (note: route_quality filtering will be applied after merging)
@@ -379,6 +379,12 @@ def export_trips():
     log_count = request.args.get("log_count", "").strip()
     log_count_op = request.args.get("log_count_op", "equal").strip()
     status_filter = request.args.get("status", "").strip()
+    
+    # New range filter parameters for trip_time and log_count
+    trip_time_min = request.args.get("trip_time_min", "").strip()
+    trip_time_max = request.args.get("trip_time_max", "").strip()
+    log_count_min = request.args.get("log_count_min", "").strip()
+    log_count_max = request.args.get("log_count_max", "").strip()
 
     excel_path = os.path.join("data", "data.xlsx")
     excel_data = load_excel_data(excel_path)
@@ -417,7 +423,6 @@ def export_trips():
                 cd = float(db_trip.calculated_distance)
             except (TypeError, ValueError):
                 cd = None
-            # Overwrite with DB value; if quality is missing, it becomes ""
             row["route_quality"] = db_trip.route_quality or ""
             row["manual_distance"] = md if md is not None else ""
             row["calculated_distance"] = cd if cd is not None else ""
@@ -498,8 +503,21 @@ def export_trips():
             return value >= threshold
         return False
 
-    # Filter by trip_time using operator logic
-    if trip_time:
+    # Filter by trip_time: use range filtering if trip_time_min or trip_time_max provided, else operator filtering
+    if trip_time_min or trip_time_max:
+        if trip_time_min:
+            try:
+                tt_min = float(trip_time_min)
+                merged = [r for r in merged if r.get("trip_time") not in (None, "") and float(r.get("trip_time")) >= tt_min]
+            except ValueError:
+                pass
+        if trip_time_max:
+            try:
+                tt_max = float(trip_time_max)
+                merged = [r for r in merged if r.get("trip_time") not in (None, "") and float(r.get("trip_time")) <= tt_max]
+            except ValueError:
+                pass
+    elif trip_time:
         try:
             tt_value = float(trip_time)
             merged = [r for r in merged if r.get("trip_time") not in (None, "") and compare(float(r.get("trip_time")), trip_time_op, tt_value)]
@@ -510,8 +528,21 @@ def export_trips():
     if completed_by_filter:
         merged = [r for r in merged if r.get("completed_by") and str(r.get("completed_by")).strip().lower() == completed_by_filter.lower()]
 
-    # Filter by log_count (using coordinate_count) with operator logic
-    if log_count:
+    # Filter by log_count: use range filtering if log_count_min or log_count_max provided, else operator filtering
+    if log_count_min or log_count_max:
+        if log_count_min:
+            try:
+                lc_min = int(log_count_min)
+                merged = [r for r in merged if r.get("coordinate_count") not in (None, "") and int(r.get("coordinate_count")) >= lc_min]
+            except ValueError:
+                pass
+        if log_count_max:
+            try:
+                lc_max = int(log_count_max)
+                merged = [r for r in merged if r.get("coordinate_count") not in (None, "") and int(r.get("coordinate_count")) <= lc_max]
+            except ValueError:
+                pass
+    elif log_count:
         try:
             lc_value = int(log_count)
             merged = [r for r in merged if r.get("coordinate_count") not in (None, "") and compare(int(r.get("coordinate_count")), log_count_op, lc_value)]
@@ -548,6 +579,7 @@ def export_trips():
         download_name=filename,
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
+
 
 
 
@@ -810,13 +842,19 @@ def trips():
     carrier_filter = request.args.get("carrier", "").strip()
     variance_min = request.args.get("variance_min", type=float)
     variance_max = request.args.get("variance_max", type=float)
-    # New filters
+    # New filters for operator-based filtering
     trip_time_filter = request.args.get("trip_time", "").strip()
     trip_time_op = request.args.get("trip_time_op", "equal").strip()
     completed_by_filter = request.args.get("completed_by", "").strip()
     log_count_filter = request.args.get("log_count", "").strip()
     log_count_op = request.args.get("log_count_op", "equal").strip()
     status_filter = request.args.get("status", "").strip()
+
+    # New range filter parameters for trip_time and log_count
+    trip_time_min = request.args.get("trip_time_min", "").strip()
+    trip_time_max = request.args.get("trip_time_max", "").strip()
+    log_count_min = request.args.get("log_count_min", "").strip()
+    log_count_max = request.args.get("log_count_max", "").strip()
 
     excel_path = os.path.join("data", "data.xlsx")
     excel_data = load_excel_data(excel_path)
@@ -904,7 +942,7 @@ def trips():
             excel_data = [r for r in excel_data if str(r.get("route_quality", "")).strip() == ""]
         else:
             excel_data = [r for r in excel_data if str(r.get("route_quality", "")).strip().lower() == rq_filter]
-
+    
     if variance_min is not None:
         excel_data = [r for r in excel_data if r.get("variance") is not None and r["variance"] >= variance_min]
     if variance_max is not None:
@@ -940,8 +978,21 @@ def trips():
             return value >= threshold
         return False
 
-    # Apply new filters:
-    if trip_time_filter:
+    # Apply new filters for trip_time: range filtering takes precedence over operator filtering
+    if trip_time_min or trip_time_max:
+        if trip_time_min:
+            try:
+                tt_min = float(trip_time_min)
+                excel_data = [r for r in excel_data if r.get("trip_time") not in (None, "") and float(r.get("trip_time")) >= tt_min]
+            except ValueError:
+                pass
+        if trip_time_max:
+            try:
+                tt_max = float(trip_time_max)
+                excel_data = [r for r in excel_data if r.get("trip_time") not in (None, "") and float(r.get("trip_time")) <= tt_max]
+            except ValueError:
+                pass
+    elif trip_time_filter:
         try:
             tt_value = float(trip_time_filter)
             excel_data = [r for r in excel_data if r.get("trip_time") not in (None, "") and compare(float(r.get("trip_time")), trip_time_op, tt_value)]
@@ -951,7 +1002,21 @@ def trips():
     if completed_by_filter:
         excel_data = [r for r in excel_data if r.get("completed_by") and str(r.get("completed_by")).strip().lower() == completed_by_filter.lower()]
 
-    if log_count_filter:
+    # Apply new filters for log_count: range filtering takes precedence over operator filtering
+    if log_count_min or log_count_max:
+        if log_count_min:
+            try:
+                lc_min = int(log_count_min)
+                excel_data = [r for r in excel_data if r.get("coordinate_count") not in (None, "") and int(r.get("coordinate_count")) >= lc_min]
+            except ValueError:
+                pass
+        if log_count_max:
+            try:
+                lc_max = int(log_count_max)
+                excel_data = [r for r in excel_data if r.get("coordinate_count") not in (None, "") and int(r.get("coordinate_count")) <= lc_max]
+            except ValueError:
+                pass
+    elif log_count_filter:
         try:
             lc_value = int(log_count_filter)
             excel_data = [r for r in excel_data if r.get("coordinate_count") not in (None, "") and compare(int(r.get("coordinate_count")), log_count_op, lc_value)]
@@ -1006,6 +1071,7 @@ def trips():
         drivers=drivers,
         carriers_for_dropdown=carriers_for_dropdown
     )
+
 
 
 
