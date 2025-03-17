@@ -1,11 +1,7 @@
 {% extends "layout.html" %}
 {% block content %}
 <style>
-  html, body {
-    margin: 0;
-    padding: 0;
-    width: 100%;
-  }
+  /* Ensure the table headers remain visible while scrolling horizontally */
   .table-container {
     width: 100%;
     overflow-x: auto;
@@ -38,170 +34,164 @@
   }
 </style>
 
-<nav class="navbar navbar-expand-lg navbar-light bg-light" style="width: 100%;">
-  <div class="container-fluid">
-    <a class="navbar-brand" href="{{ url_for('analytics') }}">My Dashboard</a>
-    <div class="collapse navbar-collapse">
-      <ul class="navbar-nav me-auto">
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('analytics') }}">Dashboard</a></li>
-        <li class="nav-item"><a class="nav-link active" href="{{ url_for('trips') }}">Trips</a></li>
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('trip_insights') }}">Trip Insights</a></li>
-      </ul>
-      <form class="d-flex" method="GET" action="{{ url_for('trips') }}">
-        <input type="text" name="trip_id" placeholder="Trip ID" class="form-control me-2" value="{{ trip_id_search }}" />
-        <select name="route_quality" class="form-select me-2">
+<div class="card mb-4 animate__animated animate__fadeInUp">
+  <div class="card-body">
+    <h2 class="card-title">Trips</h2>
+    <form class="row g-3" method="GET" action="{{ url_for('trips') }}">
+      <div class="col-md-2">
+        <input type="text" name="trip_id" class="form-control" placeholder="Trip ID" value="{{ trip_id_search }}" />
+      </div>
+      <div class="col-md-2">
+        <select name="route_quality" class="form-select">
           <option value="">-- Route Quality --</option>
           <option value="No Logs Trips" {% if route_quality_filter == "No Logs Trips" %}selected{% endif %}>No Logs Trips</option>
-          <option value="Trip Points Only Exist " {% if route_quality_filter == "Trip Points Only Exist " %}selected{% endif %}>Trip Points Only Exist </option>
+          <option value="Trip Points Only Exist" {% if route_quality_filter == "Trip Points Only Exist" %}selected{% endif %}>Trip Points Only Exist</option>
           <option value="Low" {% if route_quality_filter == "Low" %}selected{% endif %}>Low</option>
           <option value="Moderate" {% if route_quality_filter == "Moderate" %}selected{% endif %}>Moderate</option>
           <option value="High" {% if route_quality_filter == "High" %}selected{% endif %}>High</option>
         </select>
-        <input type="text" name="model" placeholder="Model" class="form-control me-2" value="{{ model_filter }}" />
-        <input type="text" name="ram" placeholder="RAM" class="form-control me-2" value="{{ ram_filter }}" />
-
-        <!-- Carrier Filter Dropdown -->
-        <select name="carrier" class="form-select me-2">
+      </div>
+      <div class="col-md-2">
+        <input type="text" name="model" class="form-control" placeholder="Model" value="{{ model_filter }}" />
+      </div>
+      <div class="col-md-2">
+        <input type="text" name="ram" class="form-control" placeholder="RAM" value="{{ ram_filter }}" />
+      </div>
+      <div class="col-md-2">
+        <select name="carrier" class="form-select">
           <option value="">-- Select Carrier --</option>
           {% for c in carriers_for_dropdown %}
           <option value="{{ c }}" {% if c == carrier_filter %}selected{% endif %}>{{ c }}</option>
           {% endfor %}
         </select>
-
-        <input type="text" name="variance_min" placeholder="Variance Min (%)" class="form-control me-2" value="{{ variance_min }}" />
-        <input type="text" name="variance_max" placeholder="Variance Max (%)" class="form-control me-2" value="{{ variance_max }}" />
-        <select name="driver" class="form-select me-2">
+      </div>
+      <div class="col-md-2">
+        <input type="text" name="variance_min" class="form-control" placeholder="Variance Min (%)" value="{{ variance_min }}" />
+      </div>
+      <div class="col-md-2">
+        <input type="text" name="variance_max" class="form-control" placeholder="Variance Max (%)" value="{{ variance_max }}" />
+      </div>
+      <div class="col-md-2">
+        <select name="driver" class="form-select">
           <option value="">-- Select Driver --</option>
           {% for d in drivers %}
           <option value="{{ d }}" {% if d == driver_filter %}selected{% endif %}>{{ d }}</option>
           {% endfor %}
         </select>
-        <input type="text" name="export_name" placeholder="Export Filter Name" class="form-control me-2" />
-        <button class="btn btn-outline-success me-2" type="submit">Filter</button>
-        <a class="btn btn-outline-primary" href="{{ url_for('export_trips', trip_id=trip_id_search, route_quality=route_quality_filter, model=model_filter, ram=ram_filter, carrier=carrier_filter, variance_min=variance_min, variance_max=variance_max, driver=driver_filter, export_name=request.args.get('export_name','exported_trips')) }}">Export XLSX</a>
+      </div>
+      <div class="col-md-2">
+        <input type="text" name="export_name" class="form-control" placeholder="Export Name" value="{{ request.args.get('export_name','exported_trips') }}" />
+      </div>
+      <div class="col-md-2">
+        <button type="submit" class="btn btn-primary w-100">Filter</button>
+      </div>
+      <div class="col-md-2">
+        <a href="{{ url_for('export_trips', trip_id=trip_id_search, route_quality=route_quality_filter, model=model_filter, ram=ram_filter, carrier=carrier_filter, variance_min=variance_min, variance_max=variance_max, driver=driver_filter, export_name=request.args.get('export_name','exported_trips')) }}" class="btn btn-success w-100">Export XLSX</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card mb-4 animate__animated animate__fadeInUp">
+  <div class="card-body">
+    {% if min_date and max_date %}
+    <div class="mb-3 text-center">
+      <strong>Date Range in data.xlsx:</strong> {{ min_date.strftime("%Y-%m-%d") }} to {{ max_date.strftime("%Y-%m-%d") }}
+    </div>
+    {% endif %}
+    <div class="mb-3">
+      <form method="POST" action="{{ url_for('update_db') }}">
+        <button type="submit" class="btn btn-warning">Update Database</button>
       </form>
     </div>
+    <div class="table-container">
+      <table class="table table-bordered custom-table">
+        <thead class="table-light">
+          <tr>
+            <th>Driver</th>
+            <th>Carrier</th>
+            <th>Android Ver</th>
+            <th>Model</th>
+            <th>Device Name</th>
+            <th>Chipset</th>
+            <th>RAM</th>
+            <th>Storage</th>
+            <th>Background Tendency</th>
+            <th>Manufacturer</th>
+            <th>Manual Dist</th>
+            <th>Calc Dist</th>
+            <th>% Calc/Manual</th>
+            <th>Variance (%)</th>
+            <th>Trip ID</th>
+            <th>Route Quality</th>
+            <th>Trip Time (h)</th>
+            <th>Completed By</th>
+            <th>Log Count</th>
+            <th>Status</th>
+            <th>View Details</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for trip in trips %}
+          <tr>
+            <td>{{ trip.UserName }}</td>
+            <td>{{ trip.carrier }}</td>
+            <td>{{ trip["Android Version"] }}</td>
+            <td>{{ trip.model }}</td>
+            <td>{{ trip["Device Name"] }}</td>
+            <td>{{ trip.Chipset }}</td>
+            <td>{{ trip.RAM }}</td>
+            <td>{{ trip.Storage }}</td>
+            <td>{{ trip["Background Task Killing Tendency"] }}</td>
+            <td>{{ trip.manufacturer }}</td>
+            <td>{{ trip.manual_distance }}</td>
+            <td>{{ trip.calculated_distance }}</td>
+            <td>{{ trip.distance_percentage }}</td>
+            <td>
+              {% if trip.variance is not none %}
+                {{ trip.variance|round(2) }}%
+              {% else %}
+                N/A
+              {% endif %}
+            </td>
+            <td>
+              <a href="https://backoffice.illa.blue/database/trips/{{ trip.tripId }}" target="_blank">{{ trip.tripId }}</a>
+            </td>
+            <td>
+              <select class="form-select route-quality-select" data-trip-id="{{ trip.tripId }}">
+                <option value="">-- Select --</option>
+                <option value="No Logs Trips" {% if trip.route_quality == "No Logs Trips" %}selected{% endif %}>No Logs Trips</option>
+                <option value="Trip Points Only Exist" {% if trip.route_quality == "Trip Points Only Exist" %}selected{% endif %}>Trip Points Only Exist</option>
+                <option value="Low" {% if trip.route_quality == "Low" %}selected{% endif %}>Low</option>
+                <option value="Moderate" {% if trip.route_quality == "Moderate" %}selected{% endif %}>Moderate</option>
+                <option value="High" {% if trip.route_quality == "High" %}selected{% endif %}>High</option>
+              </select>
+            </td>
+            <td>{{ trip.trip_time if trip.trip_time is not none else 'N/A' }}</td>
+            <td>{{ trip.completed_by if trip.completed_by is not none else 'N/A' }}</td>
+            <td>{{ trip.coordinate_count if trip.coordinate_count != "" else 'N/A' }}</td>
+            <td>{{ trip.status if trip.status is not none else 'N/A' }}</td>
+            <td>
+              <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('trip_detail', trip_id=trip.tripId) }}">View</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="d-flex justify-content-between align-items-center mt-3">
+      <p class="mb-0">Showing page {{ page }} of {{ total_pages }} ({{ total_rows }} total rows)</p>
+      <div>
+        {% if page > 1 %}
+          <a class="btn btn-secondary btn-sm" href="?page={{ page-1 }}&trip_id={{ trip_id_search }}&route_quality={{ route_quality_filter }}&model={{ model_filter }}&ram={{ ram_filter }}&variance_min={{ variance_min }}&variance_max={{ variance_max }}&driver={{ driver_filter or '' }}&carrier={{ carrier_filter or '' }}">Previous</a>
+        {% endif %}
+        {% if page < total_pages %}
+          <a class="btn btn-secondary btn-sm" href="?page={{ page+1 }}&trip_id={{ trip_id_search }}&route_quality={{ route_quality_filter }}&model={{ model_filter }}&ram={{ ram_filter }}&variance_min={{ variance_min }}&variance_max={{ variance_max }}&driver={{ driver_filter or '' }}&carrier={{ carrier_filter or '' }}">Next</a>
+        {% endif %}
+      </div>
+    </div>
   </div>
-</nav>
-
-<div class="mb-3" style="margin: 1rem;">
-  <form method="POST" action="{{ url_for('update_db') }}">
-    <button type="submit" class="btn btn-warning">Update Database</button>
-  </form>
-</div>
-
-{% if min_date and max_date %}
-<div style="text-align:center; margin-bottom: 1rem;">
-  <strong>Date Range in data.xlsx:</strong> {{ min_date.strftime("%Y-%m-%d") }} to {{ max_date.strftime("%Y-%m-%d") }}
-</div>
-{% endif %}
-
-<h1 style="margin: 1rem 0 1rem 1rem;">Trips Table</h1>
-{% with messages = get_flashed_messages(with_categories=true) %}
-  {% if messages %}
-    {% for category, message in messages %}
-      <div class="alert alert-{{ category }}" style="margin: 1rem;">{{ message }}</div>
-    {% endfor %}
-  {% endif %}
-{% endwith %}
-
-<!-- Pagination Info -->
-<div style="margin: 1rem;">
-  <p>Showing page {{ page }} of {{ total_pages }} ({{ total_rows }} total rows)</p>
-  <div>
-    {% if page > 1 %}
-      <a class="btn btn-secondary btn-sm"
-         href="?page={{ page-1 }}&trip_id={{ trip_id_search }}&route_quality={{ route_quality_filter }}&model={{ model_filter }}&ram={{ ram_filter }}&variance_min={{ variance_min }}&variance_max={{ variance_max }}&driver={{ driver_filter or '' }}&carrier={{ carrier_filter or '' }}">
-        Previous
-      </a>
-    {% endif %}
-    {% if page < total_pages %}
-      <a class="btn btn-secondary btn-sm"
-         href="?page={{ page+1 }}&trip_id={{ trip_id_search }}&route_quality={{ route_quality_filter }}&model={{ model_filter }}&ram={{ ram_filter }}&variance_min={{ variance_min }}&variance_max={{ variance_max }}&driver={{ driver_filter or '' }}&carrier={{ carrier_filter or '' }}">
-        Next
-      </a>
-    {% endif %}
-  </div>
-</div>
-
-<div class="table-container">
-  <table class="custom-table">
-    <thead>
-      <tr>
-        <th>Driver</th>
-        <th>Carrier</th>
-        <th>Android Ver</th>
-        <th>Model</th>
-        <th>Device Name</th>
-        <th>Chipset</th>
-        <th>RAM</th>
-        <th>Storage</th>
-        <th>Background Tendency</th>
-        <th>Manufacturer</th>
-        <th>Manual Dist</th>
-        <th>Calc Dist</th>
-        <th>% Calc/Manual</th>
-        <th>Variance (%)</th>
-        <th>Trip ID</th>
-        <th>Route Quality</th>
-        <th>Trip Time (h)</th>
-        <th>Completed By</th>
-        <th>Log Count</th> <!-- New header -->
-        <th>Status</th> <!-- New header -->
-
-        <th>View Details</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for trip in trips %}
-      <tr>
-        <td>{{ trip.UserName }}</td>
-        <td>{{ trip.carrier }}</td>
-        <td>{{ trip["Android Version"] }}</td>
-        <td>{{ trip.model }}</td>
-        <td>{{ trip["Device Name"] }}</td>
-        <td>{{ trip.Chipset }}</td>
-        <td>{{ trip.RAM }}</td>
-        <td>{{ trip.Storage }}</td>
-        <td>{{ trip["Background Task Killing Tendency"] }}</td>
-        <td>{{ trip.manufacturer }}</td>
-        <td>{{ trip.manual_distance }}</td>
-        <td>{{ trip.calculated_distance }}</td>
-        <td>{{ trip.distance_percentage }}</td>
-        <td>
-          {% if trip.variance is not none %}
-            {{ trip.variance|round(2) }}%
-          {% else %}
-            N/A
-          {% endif %}
-        </td>
-        <td>
-          <a href="https://backoffice.illa.blue/database/trips/{{ trip.tripId }}" target="_blank">{{ trip.tripId }}</a>
-        </td>
-        <td>
-          <select class="form-select route-quality-select" data-trip-id="{{ trip.tripId }}">
-            <option value="">-- Select --</option>
-            <option value="No Logs Trips" {% if trip.route_quality == "No Logs Trips" %}selected{% endif %}>No Logs Trips</option>
-            <option value="Trip Points Only Exist" {% if trip.route_quality == "Trip Points Only Exist" %}selected{% endif %}>Trip Points Only Exist </option>
-
-            <option value="Low" {% if trip.route_quality == "Low" %}selected{% endif %}>Low</option>
-            <option value="Moderate" {% if trip.route_quality == "Moderate" %}selected{% endif %}>Moderate</option>
-            <option value="High" {% if trip.route_quality == "High" %}selected{% endif %}>High</option>
-
-          </select>
-        </td>
-        <td>{{ trip.trip_time if trip.trip_time is not none else 'N/A' }}</td>
-        <td>{{ trip.completed_by if trip.completed_by is not none else 'N/A' }}</td>
-        <td>{{ trip.coordinate_count if trip.coordinate_count != "" else 'N/A' }}</td> <!-- New cell -->
-        <td>{{ trip.status if trip.status is not none else 'N/A' }}</td> <!-- New cell -->
-        
-        <td>
-          <a class="btn btn-secondary btn-sm" href="{{ url_for('trip_detail', trip_id=trip.tripId) }}">View</a>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
 </div>
 
 <script>
