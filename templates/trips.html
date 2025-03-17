@@ -33,6 +33,20 @@
     z-index: 11;
   }
 </style>
+<style>
+  .modal {
+    z-index: 1100 !important;
+  }
+  .modal-backdrop {
+    z-index: 1090 !important;
+  }
+  .modal-backdrop.fade.show {
+    pointer-events: none !important;
+  }
+  .modal-content {
+    pointer-events: auto !important;
+  }
+</style>
 
 <div class="card mb-4 animate__animated animate__fadeInUp">
   <div class="card-body">
@@ -53,7 +67,12 @@
         </select>
       </div>
       <div class="col-md-2">
-        <input type="text" name="model" class="form-control" placeholder="Model" value="{{ model_filter }}" />
+        <select name="model" class="form-select">
+          <option value="">-- Model --</option>
+          {% for key, display in models_options %}
+            <option value="{{ key }}" {% if model_filter == key %}selected{% endif %}>{{ display }}</option>
+          {% endfor %}
+        </select>
       </div>
       <div class="col-md-2">
         <input type="text" name="ram" class="form-control" placeholder="RAM" value="{{ ram_filter }}" />
@@ -99,7 +118,12 @@
         <input type="text" name="trip_time" class="form-control" placeholder="Trip Time (h)" value="{{ request.args.get('trip_time','') }}" />
       </div>
       <div class="col-md-2">
-        <input type="text" name="completed_by" class="form-control" placeholder="Completed By" value="{{ request.args.get('completed_by','') }}" />
+        <select name="completed_by" class="form-select">
+          <option value="">-- Completed By --</option>
+          {% for cb in completed_by_options %}
+            <option value="{{ cb }}" {% if request.args.get('completed_by','') == cb %}selected{% endif %}>{{ cb }}</option>
+          {% endfor %}
+        </select>
       </div>
       <!-- New Row: Log Count Range -->
       <div class="col-md-2">
@@ -120,7 +144,12 @@
         <input type="text" name="log_count" class="form-control" placeholder="Log Count" value="{{ request.args.get('log_count','') }}" />
       </div>
       <div class="col-md-2">
-        <input type="text" name="status" class="form-control" placeholder="Status" value="{{ request.args.get('status','') }}" />
+        <select name="status" class="form-select">
+          <option value="">-- Status --</option>
+          {% for s in statuses %}
+            <option value="{{ s }}" {% if request.args.get('status','completed') == s %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
       </div>
       <div class="col-md-2">
         <input type="text" name="export_name" class="form-control" placeholder="Export Name" value="{{ request.args.get('export_name','exported_trips') }}" />
@@ -129,9 +158,20 @@
         <button type="submit" class="btn btn-primary w-100">Filter</button>
       </div>
       <div class="col-md-2">
-        <a href="{{ url_for('export_trips', trip_id=trip_id_search, route_quality=route_quality_filter, model=model_filter, ram=ram_filter, carrier=carrier_filter, variance_min=variance_min, variance_max=variance_max, driver=driver_filter, export_name=request.args.get('export_name','exported_trips')) }}" class="btn btn-success w-100">Export XLSX</a>
+        <a href="{{ url_for('export_trips', trip_id=trip_id_search, route_quality=route_quality_filter, model=model_filter, ram=ram_filter, carrier=carrier_filter, variance_min=variance_min, variance_max=variance_max, driver=driver_filter, trip_time_min=request.args.get('trip_time_min',''), trip_time_max=request.args.get('trip_time_max',''), trip_time_op=request.args.get('trip_time_op','equal'), trip_time=request.args.get('trip_time',''), completed_by=request.args.get('completed_by',''), log_count_min=request.args.get('log_count_min',''), log_count_max=request.args.get('log_count_max',''), log_count_op=request.args.get('log_count_op','equal'), log_count=request.args.get('log_count',''), status=request.args.get('status',''), export_name=request.args.get('export_name','exported_trips') ) }}" class="btn btn-success w-100">Export XLSX</a>
       </div>
     </form>
+  </div>
+  <div class="mb-3">
+    <button id="update-db-btn" class="btn btn-warning">Update Database</button>
+  </div>
+  <div class="mb-3">
+    <button id="full-update-btn" class="btn btn-danger">Full Refresh from Endpoints</button>
+  </div>
+  <div id="update-progress-container" style="display:none; margin-bottom: 15px;">
+    <div class="progress">
+      <div id="update-progress-bar" class="progress-bar" role="progressbar" style="width: 0%;">0%</div>
+    </div>
   </div>
 </div>
 
@@ -252,5 +292,120 @@ document.querySelectorAll('.route-quality-select').forEach(function(selectElem) 
     });
   });
 });
+
+document.getElementById('update-db-btn').addEventListener('click', function() {
+  var btn = this;
+  btn.disabled = true;
+  fetch('{{ url_for("update_db_async") }}', { method: 'POST' })
+    .then(response => response.json())
+    .then(data => {
+        var jobId = data.job_id;
+        document.getElementById('update-progress-container').style.display = 'block';
+        var progressBar = document.getElementById('update-progress-bar');
+        var interval = setInterval(function() {
+            fetch('{{ url_for("update_progress") }}' + '?job_id=' + jobId)
+              .then(response => response.json())
+              .then(progressData => {
+                  if(progressData.error) {
+                      clearInterval(interval);
+                      alert('Error: ' + progressData.error);
+                      document.getElementById('update-progress-container').style.display = 'none';
+                      btn.disabled = false;
+                  } else {
+                      var percent = progressData.percent;
+                      progressBar.style.width = percent + '%';
+                      progressBar.innerText = Math.floor(percent) + '%';
+                      if(progressData.status === 'completed') {
+                          clearInterval(interval);
+                          setTimeout(function(){
+                              document.getElementById('update-progress-container').style.display = 'none';
+                              btn.disabled = false;
+                          }, 1000);
+                      }
+                  }
+              });
+        }, 2000);
+    });
+});
+
+// Locate the full-update-btn event listener and update the modal code
+document.addEventListener('DOMContentLoaded', function() {
+  var fullUpdateBtn = document.getElementById('full-update-btn');
+  if (fullUpdateBtn) {
+    fullUpdateBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      // Show the in-page Bootstrap confirmation modal
+      var modalEl = document.getElementById('confirmationModal');
+      // Reparent the modal element to the document body if not already
+      if (modalEl.parentNode !== document.body) {
+        document.body.appendChild(modalEl);
+      }
+      var modal = new bootstrap.Modal(modalEl);
+      modal.show();
+      
+      // If user confirms, start the full refresh process
+      document.getElementById('confirmFullRefresh').onclick = function() {
+        modal.hide();
+        fullUpdateBtn.disabled = true;
+        fetch('{{ url_for("update_all_db_async") }}', { method: 'POST' })
+          .then(response => response.json())
+          .then(data => {
+            var jobId = data.job_id;
+            document.getElementById('update-progress-container').style.display = 'block';
+            var progressBar = document.getElementById('update-progress-bar');
+            var interval = setInterval(function() {
+              fetch('{{ url_for("update_progress") }}' + '?job_id=' + jobId)
+                .then(response => response.json())
+                .then(progressData => {
+                  if(progressData.error) {
+                    clearInterval(interval);
+                    alert('Error: ' + progressData.error);
+                    document.getElementById('update-progress-container').style.display = 'none';
+                    fullUpdateBtn.disabled = false;
+                  } else {
+                    var percent = progressData.percent;
+                    progressBar.style.width = percent + '%';
+                    progressBar.innerText = Math.floor(percent) + '%';
+                    if(progressData.status === 'completed') {
+                      clearInterval(interval);
+                      setTimeout(function(){
+                        document.getElementById('update-progress-container').style.display = 'none';
+                        fullUpdateBtn.disabled = false;
+                      }, 1000);
+                    }
+                  }
+                });
+            }, 2000);
+          });
+      };
+
+      // If user cancels, hide the modal
+      document.getElementById('cancelFullRefresh').onclick = function() {
+        modal.hide();
+      };
+    });
+  }
+});
 </script>
+
+<!-- Confirmation Modal for Full Refresh -->
+<div class="modal fade" id="confirmationModal" tabindex="-1" aria-labelledby="confirmationModalLabel" aria-hidden="true" style="z-index: 1100 !important;">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="confirmationModalLabel">Confirm Full Refresh</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        Warning: This will perform a full refresh from endpoints, which will query all endpoints and update the database. This process may take a long time and may put significant load on the server. Do you want to proceed?
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="cancelFullRefresh">Cancel</button>
+        <button type="button" class="btn btn-primary" id="confirmFullRefresh">Proceed</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- End of Confirmation Modal insertion -->
 {% endblock %}
