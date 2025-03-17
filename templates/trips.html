@@ -45,7 +45,6 @@
         <select name="route_quality" class="form-select">
           <option value="">-- Route Quality --</option>
           <option value="Not Assigned" {% if route_quality_filter|lower == "not assigned" %}selected{% endif %}>Not Assigned</option>
-
           <option value="No Logs Trips" {% if route_quality_filter == "No Logs Trips" %}selected{% endif %}>No Logs Trips</option>
           <option value="Trip Points Only Exist" {% if route_quality_filter == "Trip Points Only Exist" %}selected{% endif %}>Trip Points Only Exist</option>
           <option value="Low" {% if route_quality_filter == "Low" %}selected{% endif %}>Low</option>
@@ -81,33 +80,48 @@
           {% endfor %}
         </select>
       </div>
+      <!-- New Row: Trip Time Range -->
+      <div class="col-md-2">
+        <input type="text" name="trip_time_min" class="form-control" placeholder="Trip Time Min (h)" value="{{ request.args.get('trip_time_min','') }}" />
+      </div>
+      <div class="col-md-2">
+        <input type="text" name="trip_time_max" class="form-control" placeholder="Trip Time Max (h)" value="{{ request.args.get('trip_time_max','') }}" />
+      </div>
+      <!-- Existing Trip Time Operator and Single Value Filter -->
       <div class="col-md-2">
         <select name="trip_time_op" class="form-select">
-          <option value="equal" {% if trip_time_op == "equal" %}selected{% endif %}>equal</option>
-          <option value="less than" {% if trip_time_op == "less than" %}selected{% endif %}>less than</option>
-          <option value="more than" {% if trip_time_op == "more than" %}selected{% endif %}>more than</option>
-          <option value="less than or equal" {% if trip_time_op == "less than or equal" %}selected{% endif %}>less than or equal</option>
-          <option value="more than or equal" {% if trip_time_op == "more than or equal" %}selected{% endif %}>more than or equal</option>
+          <option value="equal" {% if request.args.get('trip_time_op','equal') == "equal" %}selected{% endif %}>equal</option>
+          <option value="less than" {% if request.args.get('trip_time_op','equal') == "less than" %}selected{% endif %}>less than</option>
+          <option value="more than" {% if request.args.get('trip_time_op','equal') == "more than" %}selected{% endif %}>more than</option>
+          <option value="less than or equal" {% if request.args.get('trip_time_op','equal') == "less than or equal" %}selected{% endif %}>less than or equal</option>
+          <option value="more than or equal" {% if request.args.get('trip_time_op','equal') == "more than or equal" %}selected{% endif %}>more than or equal</option>
         </select>
         <input type="text" name="trip_time" class="form-control" placeholder="Trip Time (h)" value="{{ request.args.get('trip_time','') }}" />
       </div>
       <div class="col-md-2">
         <input type="text" name="completed_by" class="form-control" placeholder="Completed By" value="{{ request.args.get('completed_by','') }}" />
       </div>
+      <!-- New Row: Log Count Range -->
+      <div class="col-md-2">
+        <input type="text" name="log_count_min" class="form-control" placeholder="Log Count Min" value="{{ request.args.get('log_count_min','') }}" />
+      </div>
+      <div class="col-md-2">
+        <input type="text" name="log_count_max" class="form-control" placeholder="Log Count Max" value="{{ request.args.get('log_count_max','') }}" />
+      </div>
+      <!-- Existing Log Count Operator and Single Value Filter -->
       <div class="col-md-2">
         <select name="log_count_op" class="form-select">
-          <option value="equal" {% if log_count_op == "equal" %}selected{% endif %}>equal</option>
-          <option value="less than" {% if log_count_op == "less than" %}selected{% endif %}>less than</option>
-          <option value="more than" {% if log_count_op == "more than" %}selected{% endif %}>more than</option>
-          <option value="less than or equal" {% if log_count_op == "less than or equal" %}selected{% endif %}>less than or equal</option>
-          <option value="more than or equal" {% if log_count_op == "more than or equal" %}selected{% endif %}>more than or equal</option>
+          <option value="equal" {% if request.args.get('log_count_op','equal') == "equal" %}selected{% endif %}>equal</option>
+          <option value="less than" {% if request.args.get('log_count_op','equal') == "less than" %}selected{% endif %}>less than</option>
+          <option value="more than" {% if request.args.get('log_count_op','equal') == "more than" %}selected{% endif %}>more than</option>
+          <option value="less than or equal" {% if request.args.get('log_count_op','equal') == "less than or equal" %}selected{% endif %}>less than or equal</option>
+          <option value="more than or equal" {% if request.args.get('log_count_op','equal') == "more than or equal" %}selected{% endif %}>more than or equal</option>
         </select>
         <input type="text" name="log_count" class="form-control" placeholder="Log Count" value="{{ request.args.get('log_count','') }}" />
       </div>
       <div class="col-md-2">
         <input type="text" name="status" class="form-control" placeholder="Status" value="{{ request.args.get('status','') }}" />
       </div>
-      
       <div class="col-md-2">
         <input type="text" name="export_name" class="form-control" placeholder="Export Name" value="{{ request.args.get('export_name','exported_trips') }}" />
       </div>
@@ -122,107 +136,97 @@
 </div>
 
 <div class="card mb-4 animate__animated animate__fadeInUp">
-  <div class="card-body">
-    {% if min_date and max_date %}
-    <div class="mb-3 text-center">
-      <strong>Date Range in data.xlsx:</strong> {{ min_date.strftime("%Y-%m-%d") }} to {{ max_date.strftime("%Y-%m-%d") }}
-    </div>
-    {% endif %}
-    <div class="mb-3">
-      <form method="POST" action="{{ url_for('update_db') }}">
-        <button type="submit" class="btn btn-warning">Update Database</button>
-      </form>
-    </div>
-    <div class="table-container">
-      <table class="table table-bordered custom-table">
-        <thead class="table-light">
-          <tr>
-            <th>Driver</th>
-            <th>Carrier</th>
-            <th>Android Ver</th>
-            <th>Model</th>
-            <th>Device Name</th>
-            <th>Chipset</th>
-            <th>RAM</th>
-            <th>Storage</th>
-            <th>Background Tendency</th>
-            <th>Manufacturer</th>
-            <th>Manual Dist</th>
-            <th>Calc Dist</th>
-            <th>% Calc/Manual</th>
-            <th>Variance (%)</th>
-            <th>Trip ID</th>
-            <th>Route Quality</th>
-            <th>Trip Time (h)</th>
-            <th>Completed By</th>
-            <th>Log Count</th>
-            <th>Status</th>
-            <th>View Details</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for trip in trips %}
-          <tr>
-            <td>{{ trip.UserName }}</td>
-            <td>{{ trip.carrier }}</td>
-            <td>{{ trip["Android Version"] }}</td>
-            <td>{{ trip.model }}</td>
-            <td>{{ trip["Device Name"] }}</td>
-            <td>{{ trip.Chipset }}</td>
-            <td>{{ trip.RAM }}</td>
-            <td>{{ trip.Storage }}</td>
-            <td>{{ trip["Background Task Killing Tendency"] }}</td>
-            <td>{{ trip.manufacturer }}</td>
-            <td>{{ trip.manual_distance }}</td>
-            <td>{{ trip.calculated_distance }}</td>
-            <td>{{ trip.distance_percentage }}</td>
-            <td>
-              {% if trip.variance is not none %}
-                {{ trip.variance|round(2) }}%
-              {% else %}
-                N/A
-              {% endif %}
-            </td>
-            <td>
-              <a href="https://backoffice.illa.blue/database/trips/{{ trip.tripId }}" target="_blank">{{ trip.tripId }}</a>
-            </td>
-            <td>
-              <select class="form-select route-quality-select" data-trip-id="{{ trip.tripId }}">
-                <option value="">-- Select --</option>
-                <option value="No Logs Trips" {% if trip.route_quality == "No Logs Trips" %}selected{% endif %}>No Logs Trips</option>
-                <option value="Trip Points Only Exist" {% if trip.route_quality == "Trip Points Only Exist" %}selected{% endif %}>Trip Points Only Exist</option>
-                <option value="Low" {% if trip.route_quality == "Low" %}selected{% endif %}>Low</option>
-                <option value="Moderate" {% if trip.route_quality == "Moderate" %}selected{% endif %}>Moderate</option>
-                <option value="High" {% if trip.route_quality == "High" %}selected{% endif %}>High</option>
-              </select>
-            </td>
-            <td>{{ trip.trip_time if trip.trip_time is not none else 'N/A' }}</td>
-            <td>{{ trip.completed_by if trip.completed_by is not none else 'N/A' }}</td>
-            <td>{{ trip.coordinate_count if trip.coordinate_count != "" else 'N/A' }}</td>
-            <td>{{ trip.status if trip.status is not none else 'N/A' }}</td>
-            <td>
-              <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('trip_detail', trip_id=trip.tripId) }}">View</a>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-
-    <div class="d-flex justify-content-between align-items-center mt-3">
-      <p class="mb-0">Showing page {{ page }} of {{ total_pages }} ({{ total_rows }} total rows)</p>
-      <div>
-        {% if page > 1 %}
-          <a class="btn btn-secondary btn-sm" href="?page={{ page-1 }}&trip_id={{ trip_id_search }}&route_quality={{ route_quality_filter }}&model={{ model_filter }}&ram={{ ram_filter }}&variance_min={{ variance_min }}&variance_max={{ variance_max }}&driver={{ driver_filter or '' }}&carrier={{ carrier_filter or '' }}">Previous</a>
-        {% endif %}
-        {% if page < total_pages %}
-          <a class="btn btn-secondary btn-sm" href="?page={{ page+1 }}&trip_id={{ trip_id_search }}&route_quality={{ route_quality_filter }}&model={{ model_filter }}&ram={{ ram_filter }}&variance_min={{ variance_min }}&variance_max={{ variance_max }}&driver={{ driver_filter or '' }}&carrier={{ carrier_filter or '' }}">Next</a>
-        {% endif %}
-      </div>
+  <div class="card-body table-container">
+    <table class="table table-bordered custom-table">
+      <thead class="table-light">
+        <tr>
+          <th>Driver</th>
+          <th>Carrier</th>
+          <th>Android Ver</th>
+          <th>Model</th>
+          <th>Device Name</th>
+          <th>Chipset</th>
+          <th>RAM</th>
+          <th>Storage</th>
+          <th>Background Tendency</th>
+          <th>Manufacturer</th>
+          <th>Manual Dist</th>
+          <th>Calc Dist</th>
+          <th>% Calc/Manual</th>
+          <th>Variance (%)</th>
+          <th>Trip ID</th>
+          <th>Route Quality</th>
+          <th>Trip Time (h)</th>
+          <th>Completed By</th>
+          <th>Log Count</th>
+          <th>Status</th>
+          <th>View Details</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for trip in trips %}
+        <tr>
+          <td>{{ trip.UserName }}</td>
+          <td>{{ trip.carrier }}</td>
+          <td>{{ trip["Android Version"] }}</td>
+          <td>{{ trip.model }}</td>
+          <td>{{ trip["Device Name"] }}</td>
+          <td>{{ trip.Chipset }}</td>
+          <td>{{ trip.RAM }}</td>
+          <td>{{ trip.Storage }}</td>
+          <td>{{ trip["Background Task Killing Tendency"] }}</td>
+          <td>{{ trip.manufacturer }}</td>
+          <td>{{ trip.manual_distance }}</td>
+          <td>{{ trip.calculated_distance }}</td>
+          <td>{{ trip.distance_percentage }}</td>
+          <td>
+            {% if trip.variance is not none %}
+              {{ trip.variance|round(2) }}%
+            {% else %}
+              N/A
+            {% endif %}
+          </td>
+          <td>
+            <a href="https://backoffice.illa.blue/database/trips/{{ trip.tripId }}" target="_blank">{{ trip.tripId }}</a>
+          </td>
+          <td>
+            <select class="form-select route-quality-select" data-trip-id="{{ trip.tripId }}">
+              <option value="">-- Select --</option>
+              <option value="No Logs Trips" {% if trip.route_quality == "No Logs Trips" %}selected{% endif %}>No Logs Trips</option>
+              <option value="Trip Points Only Exist" {% if trip.route_quality == "Trip Points Only Exist" %}selected{% endif %}>Trip Points Only Exist</option>
+              <option value="Low" {% if trip.route_quality == "Low" %}selected{% endif %}>Low</option>
+              <option value="Moderate" {% if trip.route_quality == "Moderate" %}selected{% endif %}>Moderate</option>
+              <option value="High" {% if trip.route_quality == "High" %}selected{% endif %}>High</option>
+            </select>
+          </td>
+          <td>{{ trip.trip_time if trip.trip_time is not none else 'N/A' }}</td>
+          <td>{{ trip.completed_by if trip.completed_by is not none else 'N/A' }}</td>
+          <td>{{ trip.coordinate_count if trip.coordinate_count != "" else 'N/A' }}</td>
+          <td>{{ trip.status if trip.status is not none else 'N/A' }}</td>
+          <td>
+            <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('trip_detail', trip_id=trip.tripId) }}">View</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="d-flex justify-content-between align-items-center mt-3">
+    <p class="mb-0">Showing page {{ page }} of {{ total_pages }} ({{ total_rows }} total rows)</p>
+    <div>
+      {% if page > 1 %}
+        <a class="btn btn-secondary btn-sm" href="?page={{ page-1 }}&trip_id={{ trip_id_search }}&route_quality={{ route_quality_filter }}&model={{ model_filter }}&ram={{ ram_filter }}&carrier={{ carrier_filter }}&variance_min={{ variance_min }}&variance_max={{ variance_max }}&driver={{ driver_filter or '' }}&trip_time_min={{ request.args.get('trip_time_min','') }}&trip_time_max={{ request.args.get('trip_time_max','') }}&trip_time={{ request.args.get('trip_time','') }}&trip_time_op={{ request.args.get('trip_time_op','equal') }}&completed_by={{ request.args.get('completed_by','') }}&log_count_min={{ request.args.get('log_count_min','') }}&log_count_max={{ request.args.get('log_count_max','') }}&log_count={{ request.args.get('log_count','') }}&log_count_op={{ request.args.get('log_count_op','equal') }}&status={{ request.args.get('status','') }}">
+          Previous
+        </a>
+      {% endif %}
+      {% if page < total_pages %}
+        <a class="btn btn-secondary btn-sm" href="?page={{ page+1 }}&trip_id={{ trip_id_search }}&route_quality={{ route_quality_filter }}&model={{ model_filter }}&ram={{ ram_filter }}&carrier={{ carrier_filter }}&variance_min={{ variance_min }}&variance_max={{ variance_max }}&driver={{ driver_filter or '' }}&trip_time_min={{ request.args.get('trip_time_min','') }}&trip_time_max={{ request.args.get('trip_time_max','') }}&trip_time={{ request.args.get('trip_time','') }}&trip_time_op={{ request.args.get('trip_time_op','equal') }}&completed_by={{ request.args.get('completed_by','') }}&log_count_min={{ request.args.get('log_count_min','') }}&log_count_max={{ request.args.get('log_count_max','') }}&log_count={{ request.args.get('log_count','') }}&log_count_op={{ request.args.get('log_count_op','equal') }}&status={{ request.args.get('status','') }}">
+          Next
+        </a>
+      {% endif %}
     </div>
   </div>
 </div>
-
 <script>
 document.querySelectorAll('.route-quality-select').forEach(function(selectElem) {
   selectElem.addEventListener('change', function() {
