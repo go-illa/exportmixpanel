@@ -1,53 +1,46 @@
 {% extends "layout.html" %}
 {% block content %}
-<nav class="navbar navbar-expand-lg navbar-light bg-light">
-  <div class="container-fluid">
-    <a class="navbar-brand" href="{{ url_for('analytics') }}">My Dashboard</a>
-    <div class="collapse navbar-collapse">
-      <ul class="navbar-nav me-auto">
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('analytics') }}">Dashboard</a></li>
-        <li class="nav-item"><a class="nav-link active" href="{{ url_for('trip_insights') }}">Trip Insights</a></li>
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('trips') }}">Trips</a></li>
-      </ul>
-    </div>
-  </div>
-</nav>
+<!-- Navigation Bar (Retained for Trip Insights) -->
 
+<!-- Main Heading -->
 <h1 class="mt-4">Trip Insights</h1>
-<div class="row">
+
+<div class="row animate__animated animate__fadeInUp">
   <div class="col-md-6">
     <h3>Route Quality Counts</h3>
-    <ul>
-        <li>No Logs Trips: {{ quality_counts["No Logs Trips"] }}</li>
-        <li>Trip Points Only Exist: {{ quality_counts["Trip Points Only Exist"] }}</li>
-        <li>Low: {{ quality_counts["Low"] }}</li>
-        <li>Moderate: {{ quality_counts["Moderate"] }}</li>
-        <li>High: {{ quality_counts["High"] }}</li>
-        <li>No Quality Set: {{ quality_counts[""] }}</li>
+    <ul class="list-group">
+      <li class="list-group-item">No Logs Trips: {{ quality_counts["No Logs Trips"] }}</li>
+      <li class="list-group-item">Trip Points Only Exist: {{ quality_counts["Trip Points Only Exist"] }}</li>
+      <li class="list-group-item">Low: {{ quality_counts["Low"] }}</li>
+      <li class="list-group-item">Moderate: {{ quality_counts["Moderate"] }}</li>
+      <li class="list-group-item">High: {{ quality_counts["High"] }}</li>
+      <li class="list-group-item">No Quality Set: {{ quality_counts[""] }}</li>
     </ul>
   </div>
   <div class="col-md-6">
     <h3>Distance Averages</h3>
-    <ul>
-      <li>Average Manual Distance: {{ avg_manual|round(2) }}</li>
-      <li>Average Calculated Distance: {{ avg_calculated|round(2) }}</li>
+    <ul class="list-group">
+      <li class="list-group-item">Average Manual Distance: {{ avg_manual|round(2) }}</li>
+      <li class="list-group-item">Average Calculated Distance: {{ avg_calculated|round(2) }}</li>
     </ul>
   </div>
 </div>
-<div class="row mt-4">
+
+<div class="row mt-4 animate__animated animate__fadeInUp">
   <div class="col-md-6">
     <h3>Distance Consistency</h3>
-    <ul>
-      <li>Consistent Trips: {{ consistent }}</li>
-      <li>Inconsistent Trips: {{ inconsistent }}</li>
+    <ul class="list-group">
+      <li class="list-group-item">Consistent Trips: {{ consistent }}</li>
+      <li class="list-group-item">Inconsistent Trips: {{ inconsistent }}</li>
     </ul>
   </div>
 </div>
 
 <!-- New Dashboard Sections Start -->
-<hr/>
+<hr class="mt-4">
 <h2 class="mt-5">Additional Dynamic Dashboards</h2>
-<div class="card mb-4">
+
+<div class="card mb-4 animate__animated animate__fadeInUp">
   <div class="card-header">
     Trip Quality Distribution & Segmentation
   </div>
@@ -57,13 +50,13 @@
   </div>
 </div>
 
-<div class="card mb-4">
+<div class="card mb-4 animate__animated animate__fadeInUp">
   <div class="card-header">
     Quality Category Drill-Down
   </div>
   <div class="card-body">
     <p>Select a quality category from the dropdown to view the breakdown of device specifications (based on model) associated with that quality segment. This chart helps identify common device models among high, moderate, or low quality trips.</p>
-    <select id="qualitySelect" class="form-select mb-3">
+    <select id="qualitySelect" class="form-select mb-3" style="max-width:200px;">
       <option value="High">High</option>
       <option value="Moderate">Moderate</option>
       <option value="Low">Low</option>
@@ -72,7 +65,7 @@
   </div>
 </div>
 
-<div class="card mb-4">
+<div class="card mb-4 animate__animated animate__fadeInUp">
   <div class="card-header">
     Hardware Specification Impact
   </div>
@@ -82,7 +75,7 @@
   </div>
 </div>
 
-<div class="card mb-4">
+<div class="card mb-4 animate__animated animate__fadeInUp">
   <div class="card-header">
     Sensor & Feature Availability
   </div>
@@ -92,7 +85,7 @@
   </div>
 </div>
 
-<div class="card mb-4">
+<div class="card mb-4 animate__animated animate__fadeInUp">
   <div class="card-header">
     OS & Software Impact on Trip Quality
   </div>
@@ -102,7 +95,7 @@
   </div>
 </div>
 
-<div class="card mb-4">
+<div class="card mb-4 animate__animated animate__fadeInUp">
   <div class="card-header">
     Manufacturer & Model Analysis
   </div>
@@ -112,7 +105,7 @@
   </div>
 </div>
 
-<div class="card mb-4">
+<div class="card mb-4 animate__animated animate__fadeInUp">
   <div class="card-header">
     Carrier & Device Interaction
   </div>
@@ -122,7 +115,7 @@
   </div>
 </div>
 
-<div class="card mb-4">
+<div class="card mb-4 animate__animated animate__fadeInUp">
   <div class="card-header">
     Temporal Trends in Trip Quality
   </div>
@@ -132,7 +125,7 @@
   </div>
 </div>
 
-<div class="card mb-4">
+<div class="card mb-4 animate__animated animate__fadeInUp">
   <div class="card-header">
     Advanced Analytics & Predictive Insights
   </div>
@@ -140,10 +133,11 @@
     <p>Currently, the predictive analytics dashboard is not implemented due to missing data points such as battery capacity and storage details. Once these data are available, advanced predictive modeling and anomaly detection will be implemented to forecast trip quality and identify outliers.</p>
   </div>
 </div>
+<!-- New Dashboard Sections End -->
 
-<!-- Chart.js Library -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
+/* Chart initialization code for Trip Insights Dashboard */
 const qualityDistributionData = JSON.parse('{{ quality_counts|tojson }}');
 const qualityDrilldownData = JSON.parse('{{ quality_drilldown|tojson }}');
 const sensorStats = JSON.parse('{{ sensor_stats|tojson }}');
@@ -155,7 +149,7 @@ const ramQualityCounts = JSON.parse('{{ ram_quality_counts|tojson }}');
 
 Chart.defaults.font.size = 14;
 
-// Trip Quality Distribution - Bar Chart for quality_counts
+// Trip Quality Distribution - Bar Chart
 const ctxQualityDistribution = document.getElementById('qualityDistributionChart').getContext('2d');
 window.qualityDistributionChart = new Chart(ctxQualityDistribution, {
   type: 'bar',
@@ -181,7 +175,7 @@ window.qualityDistributionChart = new Chart(ctxQualityDistribution, {
   }
 });
 
-// Quality Drill-Down: interactive chart based on selected quality category
+// Quality Drill-Down: Interactive Chart
 function renderDrilldownChart(quality) {
   const data = qualityDrilldownData[quality];
   if (!data) return;
@@ -219,27 +213,21 @@ function renderDrilldownChart(quality) {
 document.getElementById('qualitySelect').addEventListener('change', function() {
   renderDrilldownChart(this.value);
 });
-
 // Initialize drilldown with default selected value
 renderDrilldownChart(document.getElementById('qualitySelect').value);
 
-// Build labels (RAM capacities) and sort them numerically
+// RAM Distribution Chart
 let ramLabels = Object.keys(ramQualityCounts);
 ramLabels.sort((a, b) => parseInt(a) - parseInt(b));
-
-// Collect all quality levels present
 let qualityLevelsSet = new Set();
 ramLabels.forEach(ram => {
   Object.keys(ramQualityCounts[ram]).forEach(q => qualityLevelsSet.add(q));
 });
 let qualityLevels = Array.from(qualityLevelsSet);
-// Order qualities: High, Moderate, Low, No Logs Trips, Trip Points Only Exist, and empty (for all others) last
 qualityLevels.sort((a, b) => {
   const order = {"High": 1, "Moderate": 2, "Low": 3, "No Logs Trips": 4, "Trip Points Only Exist": 5, "Empty": 6};
   return (order[a] || 7) - (order[b] || 7);
 });
-
-// Build datasets for each quality level
 let datasets = qualityLevels.map(q => {
   return {
     label: q,
@@ -247,7 +235,6 @@ let datasets = qualityLevels.map(q => {
     backgroundColor: q === "Low" ? "rgba(255, 99, 132, 0.7)" : q === "Moderate" ? "rgba(54, 162, 235, 0.7)" : q === "High" ? "rgba(75, 192, 192, 0.7)" : "rgba(153, 102, 255, 0.7)"
   };
 });
-
 const ctxRam = document.getElementById('ramChart').getContext('2d');
 window.ramChart = new Chart(ctxRam, {
   type: 'bar',
@@ -264,36 +251,25 @@ window.ramChart = new Chart(ctxRam, {
     },
     responsive: true,
     scales: {
-      x: { 
-        title: { display: true, text: 'RAM Capacity' }
-      },
-      y: { 
-        beginAtZero: true,
-        title: { display: true, text: 'Number of Trips' }
-      }
+      x: { title: { display: true, text: 'RAM Capacity' } },
+      y: { beginAtZero: true, title: { display: true, text: 'Number of Trips' } }
     }
   }
 });
 
-// Auto-update the page every 60 seconds to refresh chart data
-setInterval(function(){
-  location.reload();
-}, 60000);
-
-// Sensor & Feature Availability: Grouped bar chart
+// Sensor & Feature Availability Chart
 const sensorLabels = Object.keys(sensorStats["Fingerprint Sensor"] || {});
 let sensorDatasets = [];
 Object.keys(sensorStats).forEach(sensor => {
-  const data = sensorStats[sensor];
-  const percentages = sensorLabels.map(q => {
-    if(data[q]) {
-      return Math.round((data[q].present / data[q].total) * 100);
+  const data = sensorLabels.map(q => {
+    if(sensorStats[sensor][q]) {
+      return Math.round((sensorStats[sensor][q].present / sensorStats[sensor][q].total) * 100);
     }
     return 0;
   });
   sensorDatasets.push({
     label: sensor,
-    data: percentages,
+    data: data,
     backgroundColor: 'rgba(153, 102, 255, 0.7)'
   });
 });
@@ -306,10 +282,7 @@ window.sensorChart = new Chart(ctxSensor, {
   },
   options: {
     plugins: {
-      title: {
-        display: true,
-        text: 'Sensor Availability by Trip Quality (%)'
-      }
+      title: { display: true, text: 'Sensor Availability by Trip Quality (%)' }
     },
     scales: {
       x: { stacked: false, ticks: { autoSkip: false } },
@@ -318,7 +291,7 @@ window.sensorChart = new Chart(ctxSensor, {
   }
 });
 
-// OS & Software Impact: Stacked bar chart for quality by OS
+// OS & Software Impact Chart
 const osLabels = Object.keys(qualityByOs);
 const osDatasets = [];
 const qualityCategories = new Set();
@@ -334,26 +307,15 @@ qualityCategories.forEach(q => {
 const ctxOsQuality = document.getElementById('osQualityChart').getContext('2d');
 window.osQualityChart = new Chart(ctxOsQuality, {
   type: 'bar',
-  data: {
-    labels: osLabels,
-    datasets: osDatasets
-  },
+  data: { labels: osLabels, datasets: osDatasets },
   options: {
-    plugins: {
-      title: {
-        display: true,
-        text: 'Trip Quality by Android Version'
-      }
-    },
+    plugins: { title: { display: true, text: 'Trip Quality by Android Version' } },
     responsive: true,
-    scales: {
-      x: { stacked: false, ticks: { autoSkip: false } },
-      y: { stacked: false, beginAtZero: true }
-    }
+    scales: { x: { stacked: false, ticks: { autoSkip: false } }, y: { stacked: false, beginAtZero: true } }
   }
 });
 
-// Manufacturer & Model Analysis: Stacked bar chart
+// Manufacturer & Model Analysis Chart
 const manuLabels = Object.keys(manufacturerQuality);
 const manuDatasets = [];
 const manuQualityCategories = new Set();
@@ -369,26 +331,15 @@ manuQualityCategories.forEach(q => {
 const ctxManufacturer = document.getElementById('manufacturerChart').getContext('2d');
 window.manufacturerChart = new Chart(ctxManufacturer, {
   type: 'bar',
-  data: {
-    labels: manuLabels,
-    datasets: manuDatasets
-  },
+  data: { labels: manuLabels, datasets: manuDatasets },
   options: {
-    plugins: {
-      title: {
-        display: true,
-        text: 'Trip Quality by Manufacturer'
-      }
-    },
+    plugins: { title: { display: true, text: 'Trip Quality by Manufacturer' } },
     responsive: true,
-    scales: {
-      x: { stacked: false, ticks: { autoSkip: false } },
-      y: { stacked: false, beginAtZero: true }
-    }
+    scales: { x: { stacked: false, ticks: { autoSkip: false } }, y: { stacked: false, beginAtZero: true } }
   }
 });
 
-// Carrier & Device Interaction: Stacked bar chart for carrier quality
+// Carrier & Device Interaction Chart
 const carrierLabels = Object.keys(carrierQuality);
 const carrierDatasets = [];
 const carrierQualityCategories = new Set();
@@ -404,36 +355,24 @@ carrierQualityCategories.forEach(q => {
 const ctxCarrier = document.getElementById('carrierChart').getContext('2d');
 window.carrierChart = new Chart(ctxCarrier, {
   type: 'bar',
-  data: {
-    labels: carrierLabels,
-    datasets: carrierDatasets
-  },
+  data: { labels: carrierLabels, datasets: carrierDatasets },
   options: {
     indexAxis: 'x',
     responsive: true,
-    scales: {
-      x: {
-        stacked: false,
-        ticks: { autoSkip: false }
-      },
-      y: {
-        stacked: false,
-        beginAtZero: true
-      }
-    }
+    scales: { x: { stacked: false, ticks: { autoSkip: false } }, y: { stacked: false, beginAtZero: true } }
   }
 });
 
-// Temporal Trends: Line chart for time series of trip quality
+// Temporal Trends Chart
 const timeLabels = Object.keys(timeSeries);
 const timeDatasets = [];
 const timeQualityCategories = new Set();
 Object.values(timeSeries).forEach(obj => { Object.keys(obj).forEach(q => timeQualityCategories.add(q)); });
 timeQualityCategories.forEach(q => {
-  const data = timeLabels.map(date => timeSeries[date][q] || 0);
+  const datasetData = timeLabels.map(date => timeSeries[date][q] || 0);
   timeDatasets.push({
     label: q,
-    data: data,
+    data: datasetData,
     backgroundColor: 'rgba(75, 192, 192, 0.7)',
     borderColor: 'rgba(75, 192, 192, 1)',
     fill: false
@@ -442,27 +381,19 @@ timeQualityCategories.forEach(q => {
 const ctxTimeSeries = document.getElementById('timeSeriesChart').getContext('2d');
 window.timeSeriesChart = new Chart(ctxTimeSeries, {
   type: 'line',
-  data: {
-    labels: timeLabels,
-    datasets: timeDatasets
-  },
+  data: { labels: timeLabels, datasets: timeDatasets },
   options: {
-    plugins: {
-      title: {
-        display: true,
-        text: 'Temporal Trends in Trip Quality'
-      }
-    },
+    plugins: { title: { display: true, text: 'Temporal Trends in Trip Quality' } },
     responsive: true,
-    scales: {
-      y: { beginAtZero: true }
-    }
+    scales: { y: { beginAtZero: true } }
   }
 });
-</script>
-<!-- New Dashboard Sections End -->
 
-<script>
+// Auto-update the page every 60 seconds to refresh chart data
+setInterval(function(){
+  location.reload();
+}, 60000);
+
 /* Updated updateDashboards function to disable auto-update on 404 errors */
 function updateDashboards() {
   fetch('/api/trip_insights_data')
@@ -479,11 +410,9 @@ function updateDashboards() {
         window.qualityDistributionChart.data.datasets[0].data = Object.values(data.quality_counts);
         window.qualityDistributionChart.update();
       }
-
       // Update Drilldown Chart based on currently selected quality
       const drillQuality = document.getElementById('qualitySelect').value;
       renderDrilldownChart(drillQuality);
-
       // Update Sensor Chart
       if(window.sensorChart) {
         const sensorLabels = Object.keys(data.sensor_stats["Fingerprint Sensor"] || {});
@@ -505,7 +434,6 @@ function updateDashboards() {
         window.sensorChart.data.datasets = sensorDatasets;
         window.sensorChart.update();
       }
-
       // Update OS Quality Chart
       if(window.osQualityChart) {
         const osLabels = Object.keys(data.quality_by_os);
@@ -524,7 +452,6 @@ function updateDashboards() {
         window.osQualityChart.data.datasets = osDatasets;
         window.osQualityChart.update();
       }
-
       // Update Manufacturer Chart
       if(window.manufacturerChart) {
         const manuLabels = Object.keys(data.manufacturer_quality);
@@ -543,7 +470,6 @@ function updateDashboards() {
         window.manufacturerChart.data.datasets = manuDatasets;
         window.manufacturerChart.update();
       }
-
       // Update Carrier Chart
       if(window.carrierChart) {
         const carrierLabels = Object.keys(data.carrier_quality);
@@ -562,7 +488,6 @@ function updateDashboards() {
         window.carrierChart.data.datasets = carrierDatasets;
         window.carrierChart.update();
       }
-
       // Update Time Series Chart
       if(window.timeSeriesChart) {
         const timeLabels = Object.keys(data.time_series);
@@ -596,5 +521,5 @@ function updateDashboards() {
 // Store the interval ID in dashboardInterval so it can be cleared if needed
 var dashboardInterval = setInterval(updateDashboards, 30000);
 </script>
-
+<!-- New Dashboard Sections End -->
 {% endblock %}
