@@ -25,7 +25,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from db.config import DB_URI, API_TOKEN, BASE_API_URL, API_EMAIL, API_PASSWORD
-from db.models import Base, Trip
+from db.models import Base, Trip, Tag
 
 app = Flask(__name__)
 update_jobs = {}
@@ -388,7 +388,8 @@ def export_trips():
         "variance_min": request.args.get("variance_min"),
         "variance_max": request.args.get("variance_max"),
         "export_name": request.args.get("export_name", "exported_trips"),
-        "route_quality": request.args.get("route_quality", "").strip()
+        "route_quality": request.args.get("route_quality", "").strip(),
+        "trip_issues": request.args.get("trip_issues", "").strip()
     }
     # New filter parameters with operator strings (in English)
     trip_time = request.args.get("trip_time", "").strip()
@@ -406,6 +407,7 @@ def export_trips():
 
     excel_path = os.path.join("data", "data.xlsx")
     excel_data = load_excel_data(excel_path)
+    merged = []
 
     # Apply basic Excel filters (except route_quality)
     if filters["driver"]:
@@ -425,10 +427,13 @@ def export_trips():
 
     # Merge Excel data with DB records (this will update/overwrite the route_quality field)
     excel_trip_ids = [row.get("tripId") for row in excel_data if row.get("tripId")]
-    db_trips = session_local.query(Trip).filter(Trip.trip_id.in_(excel_trip_ids)).all()
+    trip_issues_filter = filters.get("trip_issues", "")
+    query = session_local.query(Trip).filter(Trip.trip_id.in_(excel_trip_ids))
+    if trip_issues_filter:
+        query = query.join(Trip.tags).filter(Tag.name.ilike('%' + trip_issues_filter + '%'))
+    db_trips = query.all()
     db_trip_map = {trip.trip_id: trip for trip in db_trips}
 
-    merged = []
     for row in excel_data:
         trip_id = row.get("tripId")
         db_trip = db_trip_map.get(trip_id)
@@ -458,6 +463,8 @@ def export_trips():
             row["coordinate_count"] = db_trip.coordinate_count if db_trip.coordinate_count is not None else ""
             row["status"] = db_trip.status if db_trip.status is not None else ""
             row["lack_of_accuracy"] = db_trip.lack_of_accuracy if db_trip.lack_of_accuracy is not None else ""
+            row["trip_issues"] = ", ".join([tag.name for tag in db_trip.tags]) if db_trip.tags else ""
+            row["tags"] = row["trip_issues"]
         else:
             row["route_quality"] = ""
             row["manual_distance"] = ""
@@ -469,6 +476,8 @@ def export_trips():
             row["coordinate_count"] = ""
             row["status"] = ""
             row["lack_of_accuracy"] = ""
+            row["trip_issues"] = ""
+            row["tags"] = ""
         merged.append(row)
 
     # Additional variance filters
@@ -882,6 +891,7 @@ def trips():
 
     excel_path = os.path.join("data", "data.xlsx")
     excel_data = load_excel_data(excel_path)
+    merged = []
 
     # New code: if start_date and end_date query parameters are provided, filter excel_data by the 'time' field
     start_date_param = request.args.get('start_date')
@@ -969,6 +979,8 @@ def trips():
             row["coordinate_count"] = tdb.coordinate_count if tdb.coordinate_count is not None else ""
             row["status"] = tdb.status if tdb.status is not None else ""
             row["lack_of_accuracy"] = tdb.lack_of_accuracy if tdb.lack_of_accuracy is not None else ""
+            row["trip_issues"] = ", ".join([tag.name for tag in tdb.tags]) if tdb.tags else ""
+            row["tags"] = row["trip_issues"]
             if md and cd and md != 0:
                 pct = (cd / md) * 100
                 row["distance_percentage"] = f"{pct:.2f}%"
@@ -986,6 +998,9 @@ def trips():
             row["coordinate_count"] = ""
             row["status"] = ""
             row["lack_of_accuracy"] = ""
+            row["trip_issues"] = ""
+            row["tags"] = ""
+        merged.append(row)
 
     # Now apply route_quality filter after merging
     if route_quality_filter:
@@ -1243,6 +1258,61 @@ def update_route_quality():
     session_local.commit()
     session_local.close()
     return jsonify({"status": "success", "message": "Route quality updated."}), 200
+
+@app.route("/update_trip_tags", methods=["POST"])
+def update_trip_tags():
+    session_local = Session()
+    data = request.get_json()
+    trip_id = data.get("trip_id")
+    tags_list = data.get("tags", [])
+    if not trip_id:
+        session_local.close()
+        return jsonify({"status": "error", "message": "trip_id is required"}), 400
+    trip = session_local.query(Trip).filter_by(trip_id=trip_id).first()
+    if not trip:
+        session_local.close()
+        return jsonify({"status": "error", "message": "Trip not found"}), 404
+    # Clear existing tags
+    trip.tags = []
+    updated_tags = []
+    for tag_name in tags_list:
+        tag = session_local.query(Tag).filter_by(name=tag_name).first()
+        if not tag:
+            tag = Tag(name=tag_name)
+            session_local.add(tag)
+            session_local.flush()
+        trip.tags.append(tag)
+        updated_tags.append(tag.name)
+    session_local.commit()
+    session_local.close()
+    return jsonify({"status": "success", "tags": updated_tags}), 200
+
+@app.route("/get_tags", methods=["GET"])
+def get_tags():
+    session_local = Session()
+    tags = session_local.query(Tag).all()
+    data = [{"id": tag.id, "name": tag.name} for tag in tags]
+    session_local.close()
+    return jsonify({"status": "success", "tags": data}), 200
+
+@app.route("/create_tag", methods=["POST"])
+def create_tag():
+    session_local = Session()
+    data = request.get_json()
+    tag_name = data.get("name")
+    if not tag_name:
+        session_local.close()
+        return jsonify({"status": "error", "message": "Tag name is required"}), 400
+    existing = session_local.query(Tag).filter_by(name=tag_name).first()
+    if existing:
+        session_local.close()
+        return jsonify({"status": "error", "message": "Tag already exists"}), 400
+    tag = Tag(name=tag_name)
+    session_local.add(tag)
+    session_local.commit()
+    session_local.refresh(tag)
+    session_local.close()
+    return jsonify({"status": "success", "tag": {"id": tag.id, "name": tag.name}}), 200
 
 @app.route("/trip_insights")
 def trip_insights():

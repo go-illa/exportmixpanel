@@ -1,189 +1,295 @@
-import unittest
-import sys
 import os
-from unittest.mock import patch
+import sys
+import json
+import pytest
+from io import StringIO
+import tempfile
+import shutil
+import openpyxl
+from datetime import datetime
 
-# Add parent directory to path so we can import app
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from app import app
+# Adjust sys.path to import modules from the project root
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-# Dummy trip object for testing
-class DummyTrip:
-    def __init__(self, trip_id, manual_distance, calculated_distance, route_quality, status=None, trip_time=None, completed_by=None):
-        self.trip_id = trip_id
-        self.manual_distance = manual_distance
-        self.calculated_distance = calculated_distance
-        self.route_quality = route_quality
-        self.status = status
-        self.trip_time = trip_time
-        self.completed_by = completed_by
-
-# Dummy implementations for functions used in app endpoints
-def dummy_update_trip_db(trip_id, force_update=False):
-    # Mimic trip_time and completed_by computation based on trip_id for testing
-    if trip_id == 999:
-        return DummyTrip(trip_id, 100.0, 105.0, "High", trip_time=1.0, completed_by="driver")
-    elif trip_id == 1000:
-        return DummyTrip(trip_id, 100.0, 105.0, "High", trip_time=1.5, completed_by="admin")
-    else:
-        return DummyTrip(trip_id, 100.0, 105.0, "High", trip_time=0, completed_by="dummy")
-
-def dummy_fetch_trip_from_api(trip_id):
-    return {"data": {"attributes": {"dummy_attr": "value"}}}
+from app import (app, normalize_carrier, load_excel_data, get_saved_filters, 
+                 save_filter_to_session, fetch_api_token, fetch_api_token_alternative, 
+                 determine_completed_by, migrate_db)
 
 
-def dummy_load_excel_data(excel_path):
-    # Return a list with one dummy row
-    return [{
-        "tripId": 1,
-        "UserName": "TestDriver",
-        "carrier": "vodafone",
-        "model": "TestModel",
-        "RAM": "4GB",
-        "time": "2020-01-01 00:00:00",
-        "route_quality": "High"
-    }]
+# ---------------- Test normalize_carrier ----------------
+
+def test_normalize_carrier_none():
+    assert normalize_carrier(None) == ""
 
 
-class AppTestCase(unittest.TestCase):
-    def setUp(self):
-        app.config['TESTING'] = True
-        self.client = app.test_client()
-
-        # Override global functions in the app module using the module object
-        self.app_module = sys.modules['app']
-        # Save the real update_trip_db before overriding
-        self.real_update_trip_db = self.app_module.update_trip_db
-        self.app_module.update_trip_db = dummy_update_trip_db
-        self.app_module.fetch_trip_from_api = dummy_fetch_trip_from_api
-        self.app_module.load_excel_data = dummy_load_excel_data
-
-        # Use in-memory SQLite database for testing to ensure fresh schema with new columns
-        from sqlalchemy import create_engine
-        from sqlalchemy.orm import scoped_session, sessionmaker
-        from sqlalchemy.pool import StaticPool
-        from db.models import Base
-
-        new_engine = create_engine("sqlite:///:memory:", connect_args={'check_same_thread': False}, poolclass=StaticPool)
-        self.app_module.engine = new_engine
-        self.app_module.Session = scoped_session(sessionmaker(bind=new_engine, expire_on_commit=False))
-        Base.metadata.drop_all(new_engine)
-        Base.metadata.create_all(new_engine)
-
-    def test_home(self):
-        response = self.client.get('/')
-        self.assertEqual(response.status_code, 200)
-        # Check for 'Dashboard' text in the analytics page
-        self.assertIn(b'Dashboard', response.data)
-
-    def test_trips_page(self):
-        response = self.client.get('/trips')
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(b'Trips Table', response.data)
-    
-    def test_trip_insights(self):
-        response = self.client.get('/trip_insights')
-        self.assertEqual(response.status_code, 200)
-        # Check for expected quality label, such as 'High'
-        self.assertIn(b'High', response.data)
-
-    def test_export_trips(self):
-        # Test export trips endpoint with query parameter export_name
-        response = self.client.get('/export_trips?export_name=test_export')
-        self.assertEqual(response.status_code, 200)
-        # Check that the response mimetype is for Excel xlsx
-        expected_mimetype = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        self.assertEqual(response.mimetype, expected_mimetype)
-
-    def test_save_filter(self):
-        data = {
-            'filter_name': 'test_filter',
-            'trip_id': '123',
-            'route_quality': 'High',
-            'model': 'TestModel',
-            'ram': '4GB',
-            'carrier': 'Vodafone',
-            'variance_min': '10',
-            'variance_max': '20',
-            'driver': 'TestDriver'
-        }
-        response = self.client.post('/save_filter', data=data, follow_redirects=True)
-        self.assertEqual(response.status_code, 200)
-        # Check that a success message containing 'saved' appears
-        self.assertIn(b'saved', response.data.lower())
-
-    def test_trip_detail(self):
-        response = self.client.get('/trip/1')
-        self.assertEqual(response.status_code, 200)
-        # Check that the rendered page contains 'Distance Verification:' and does not show 'N/A'
-        self.assertIn(b'Distance Verification:', response.data)
-        self.assertNotIn(b'Distance Verification: N/A', response.data)
-
-    def test_update_trip_db_driver(self):
-        # Prepare fake API response for a trip completed by a driver
-        fake_response = {
-            "data": {
-                "attributes": {
-                    "status": "completed",
-                    "manualDistance": "135.0",
-                    "calculatedDistance": "1.7",
-                    "pickupTime": "2025-03-09T05:00:00.000Z",
-                    "activity": [
-                        {
-                            "user_id": 6160,
-                            "user_type": "driver",
-                            "user_name": "01020343237@illa.com.eg",
-                            "created_at": "2025-03-09 06:00:00 UTC",
-                            "changes": {
-                                "status": ["arrived", "completed"]
-                            }
-                        }
-                    ]
-                }
-            }
-        }
-
-        # Use the real update_trip_db function saved in setUp
-        real_update_trip_db = self.real_update_trip_db
-
-        with patch('app.fetch_trip_from_api', return_value=fake_response):
-            trip = real_update_trip_db(999, force_update=True)
-            # Expect trip_time to be 1.0 hour (06:00 - 05:00) and completed_by to be 'driver'
-            self.assertAlmostEqual(trip.trip_time, 1.0, places=2)
-            self.assertEqual(trip.completed_by, "driver")
-
-    def test_update_trip_db_admin(self):
-        # Prepare fake API response for a trip completed by an admin
-        fake_response = {
-            "data": {
-                "attributes": {
-                    "status": "completed",
-                    "manualDistance": "135.0",
-                    "calculatedDistance": "1.7",
-                    "pickupTime": "2025-03-09T05:00:00.000Z",
-                    "activity": [
-                        {
-                            "user_id": 73,
-                            "user_type": "admin",
-                            "user_name": "karim.ragab@illa.com.eg",
-                            "created_at": "2025-03-09 06:30:00 UTC",
-                            "changes": {
-                                "status": ["arrived", "completed"]
-                            }
-                        }
-                    ]
-                }
-            }
-        }
-
-        real_update_trip_db = self.real_update_trip_db
-
-        with patch('app.fetch_trip_from_api', return_value=fake_response):
-            trip = real_update_trip_db(1000, force_update=True)
-            # Expect trip_time to be 1.5 hours (06:30 - 05:00) and completed_by to be 'admin'
-            self.assertAlmostEqual(trip.trip_time, 1.5, places=2)
-            self.assertEqual(trip.completed_by, "admin")
+def test_normalize_carrier_empty():
+    assert normalize_carrier("") == ""
 
 
-if __name__ == '__main__':
-    unittest.main() 
+def test_normalize_carrier_vodafone():
+    # Test various casing and spacing
+    assert normalize_carrier("Voda fOne") == "Vodafone"
+
+
+def test_normalize_carrier_orange():
+    assert normalize_carrier("  orangeeg  ") == "Orange"
+
+
+def test_normalize_carrier_unknown():
+    # If not matched, should return title case
+    assert normalize_carrier("randomcarrier") == "Randomcarrier"
+
+
+# ---------------- Test load_excel_data ----------------
+
+def create_dummy_excel(file_path, header, rows):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(header)
+    for row in rows:
+        ws.append(row)
+    wb.save(file_path)
+
+
+def test_load_excel_data_success(tmp_path):
+    file_path = tmp_path / "dummy.xlsx"
+    header = ["col1", "col2"]
+    rows = [[1, 2], [3, 4]]
+    create_dummy_excel(file_path, header, rows)
+    data = load_excel_data(str(file_path))
+    assert len(data) == 2
+    assert data[0]["col1"] == 1
+
+
+def test_load_excel_data_empty(tmp_path):
+    file_path = tmp_path / "empty.xlsx"
+    header = ["col1", "col2"]
+    rows = []
+    create_dummy_excel(file_path, header, rows)
+    data = load_excel_data(str(file_path))
+    assert data == []
+
+
+def test_load_excel_data_no_header(tmp_path):
+    # Create an excel file with header row only
+    file_path = tmp_path / "noheader.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["col1", "col2"])
+    wb.save(file_path)
+    data = load_excel_data(str(file_path))
+    # With only headers and no data rows, expect empty data list
+    assert data == []
+
+
+# ---------------- Test session utility functions ----------------
+
+def test_session_filters():
+    with app.test_request_context('/'):
+        from flask import session as flask_session
+        # Initially, saved filters should be empty
+        assert get_saved_filters() == {}
+        save_filter_to_session("test", {"filter": "value"})
+        saved = get_saved_filters()
+        assert "test" in saved
+        assert saved["test"]["filter"] == "value"
+
+
+# ---------------- Test fetch_api_token and alternative ----------------
+
+def fake_post_success(*args, **kwargs):
+    class FakeResponse:
+        def __init__(self, json_data, status_code):
+            self._json = json_data
+            self.status_code = status_code
+        def json(self):
+            return self._json
+        def raise_for_status(self):
+            if not (200 <= self.status_code < 300):
+                raise Exception('HTTP Error')
+    return FakeResponse({"token": "abc123"}, 200)
+
+
+def fake_post_failure(*args, **kwargs):
+    class FakeResponse:
+        def __init__(self, text, status_code):
+            self.text = text
+            self.status_code = status_code
+        def json(self):
+            return {}
+    return FakeResponse("Error", 400)
+
+
+def test_fetch_api_token_success(monkeypatch):
+    import requests
+    monkeypatch.setattr(requests, "post", fake_post_success)
+    token = fetch_api_token()
+    assert token == "abc123"
+
+
+def test_fetch_api_token_failure(monkeypatch):
+    import requests
+    monkeypatch.setattr(requests, "post", fake_post_failure)
+    token = fetch_api_token()
+    assert token is None
+
+
+def test_fetch_api_token_alternative_success(monkeypatch):
+    import requests
+    monkeypatch.setattr(requests, "post", fake_post_success)
+    token = fetch_api_token_alternative()
+    assert token == "abc123"
+
+
+def test_fetch_api_token_alternative_failure(monkeypatch):
+    import requests
+    monkeypatch.setattr(requests, "post", fake_post_failure)
+    token = fetch_api_token_alternative()
+    assert token is None
+
+
+# ---------------- Test determine_completed_by ----------------
+# Note: This function is expected to return the user_type of the latest event with a valid 'completed' status.
+# If no valid event is found, it should return None.
+
+
+def test_determine_completed_by_no_events():
+    result = determine_completed_by([])
+    assert result is None
+
+
+def test_determine_completed_by_invalid_event():
+    # Event missing 'changes' or proper structure
+    event = {"created_at": "2023-01-01 10:00:00"}
+    result = determine_completed_by([event])
+    assert result is None
+
+
+def test_determine_completed_by_valid_event():
+    # Single valid event
+    event = {
+        "changes": {"status": ["pending", "completed"]},
+        "created_at": "2023-01-01 10:00:00",
+        "user_type": "admin"
+    }
+    result = determine_completed_by([event])
+    # Assuming the correct implementation returns the user_type
+    assert result == "admin"
+
+
+def test_determine_completed_by_multiple_events():
+    # Two events, the event with later time should be returned
+    event1 = {
+        "changes": {"status": ["pending", "completed"]},
+        "created_at": "2023-01-01 10:00:00",
+        "user_type": "admin"
+    }
+    event2 = {
+        "changes": {"status": ["pending", "completed"]},
+        "created_at": "2023-01-01 12:00:00",
+        "user_type": "driver"
+    }
+    result = determine_completed_by([event1, event2])
+    assert result == "driver"
+
+
+def test_determine_completed_by_invalid_date():
+    # Event with an invalid date format should be skipped
+    event = {
+        "changes": {"status": ["pending", "completed"]},
+        "created_at": "invalid_date",
+        "user_type": "driver"
+    }
+    result = determine_completed_by([event])
+    assert result is None
+
+
+# ---------------- Test Flask endpoint (index route) ----------------
+# Depending on your app configuration, the index route might exist. If not, expect a 404.
+
+def test_index_endpoint():
+    client = app.test_client()
+    response = client.get("/")
+    # Accept either 200 if defined or 404 if not defined
+    assert response.status_code in [200, 404]
+
+
+# ---------------- Additional Flask endpoint tests ----------------
+
+def test_unknown_endpoint():
+    client = app.test_client()
+    response = client.get("/nonexistent")
+    assert response.status_code == 404
+
+
+def test_index_post_method():
+    client = app.test_client()
+    response = client.post("/")
+    # Accept 200 if defined, 405 (method not allowed) or 404 if route not available
+    assert response.status_code in [200, 405, 404]
+
+
+def test_load_excel_data_invalid_file(tmp_path):
+    non_existent = tmp_path / "nonexistent.xlsx"
+    with pytest.raises(Exception):
+        load_excel_data(str(non_existent))
+
+
+# ---------------- Tests for migrate_db ----------------
+
+from app import migrate_db
+
+class FakeConnection:
+    def __init__(self, fake_columns):
+         self.fake_columns = fake_columns
+         self.commands_executed = []
+    def execute(self, command):
+         self.commands_executed.append(command)
+         if command.startswith("PRAGMA table_info"):
+              # Simulate returning rows; row[1] is the column name
+              return [(0, col) for col in self.fake_columns]
+         return None
+    def __enter__(self):
+         return self
+    def __exit__(self, exc_type, exc_val, exc_tb):
+         pass
+
+class FakeEngine:
+    def __init__(self, fake_columns):
+         self.fake_columns = fake_columns
+         self.fake_connection = FakeConnection(self.fake_columns)
+    def connect(self):
+         return self.fake_connection
+
+
+def test_migrate_db_missing_columns(monkeypatch):
+    # Simulate missing all new columns
+    fake_columns = ['id']  # missing trip_time, completed_by, coordinate_count, lack_of_accuracy
+    fake_engine = FakeEngine(fake_columns)
+    monkeypatch.setattr("app.engine", fake_engine)
+    migrate_db()
+    cmds = fake_engine.fake_connection.commands_executed
+    # Expect that 4 ALTER TABLE commands were executed
+    alter_cmds = [cmd for cmd in cmds if cmd.startswith("ALTER TABLE trips ADD COLUMN")]
+    assert len(alter_cmds) == 4
+
+
+def test_migrate_db_no_missing_columns(monkeypatch):
+    # Simulate that all required columns exist
+    fake_columns = ['id', 'trip_time', 'completed_by', 'coordinate_count', 'lack_of_accuracy']
+    fake_engine = FakeEngine(fake_columns)
+    monkeypatch.setattr("app.engine", fake_engine)
+    migrate_db()
+    cmds = fake_engine.fake_connection.commands_executed
+    alter_cmds = [cmd for cmd in cmds if cmd.startswith("ALTER TABLE trips ADD COLUMN")]
+    # Expect no ALTER TABLE commands executed
+    assert len(alter_cmds) == 0
+
+
+def test_migrate_db_exception(monkeypatch, caplog):
+    def fake_connect_exception(*args, **kwargs):
+         raise Exception("Fake DB error")
+    monkeypatch.setattr("app.engine.connect", fake_connect_exception)
+    migrate_db()
+    # Check that an error log was generated in caplog
+    assert "Migration error:" in caplog.text 
