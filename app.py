@@ -1659,5 +1659,29 @@ def update_progress():
     else:
         return jsonify({"error": "Job not found"}), 404
 
+# New endpoint to proxy trip coordinates with proper authentication
+@app.route('/trip_coordinates/<int:trip_id>')
+def trip_coordinates(trip_id):
+    url = f"{BASE_API_URL}/trips/{trip_id}/coordinates"
+    # Try to get primary token
+    token = fetch_api_token() or API_TOKEN
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+    resp = requests.get(url, headers=headers)
+    # If unauthorized, try alternative token
+    if resp.status_code == 401:
+        alt_token = fetch_api_token_alternative()
+        if alt_token:
+            headers["Authorization"] = f"Bearer {alt_token}"
+            resp = requests.get(url, headers=headers)
+    try:
+        resp.raise_for_status()
+        return jsonify(resp.json())
+    except Exception as e:
+        app.logger.error(f"Error fetching coordinates for trip {trip_id}: {e}")
+        return jsonify({"message": "Error fetching coordinates", "error": str(e)}), 500
+
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)

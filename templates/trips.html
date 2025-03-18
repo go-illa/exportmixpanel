@@ -35,16 +35,10 @@
 </style>
 <style>
   .modal {
-    z-index: 1100 !important;
+    z-index: 1055 !important;
   }
   .modal-backdrop {
-    z-index: 1090 !important;
-  }
-  .modal-backdrop.fade.show {
-    pointer-events: none !important;
-  }
-  .modal-content {
-    pointer-events: auto !important;
+    z-index: 1050 !important;
   }
 </style>
 
@@ -205,6 +199,7 @@
           <th>Status</th>
           <th>Lack of Accuracy</th>
           <th>View Details</th>
+          <th>Play Trip</th>
         </tr>
       </thead>
       <tbody>
@@ -252,6 +247,9 @@
           </td>
           <td>
             <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('trip_detail', trip_id=trip.tripId) }}">View</a>
+          </td>
+          <td>
+            <button class="btn btn-info btn-sm play-trip-btn" data-trip-id="{{ trip.tripId }}">Play Trip</button>
           </td>
         </tr>
         {% endfor %}
@@ -415,4 +413,489 @@ document.addEventListener('DOMContentLoaded', function() {
 </div>
 
 <!-- End of Confirmation Modal insertion -->
+
+<!-- Play Trip Modal -->
+<div class="modal fade" id="playTripModal" tabindex="-1" aria-labelledby="playTripModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered" style="max-width:90%; margin:auto;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="playTripModalLabel">Trip Playback</h5>
+        <button type="button" class="btn btn-secondary me-2" id="toggleFullscreenBtn" title="Toggle fullscreen mode">Fullscreen</button>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" id="closePlayTripModal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="map" style="width:100%; height:400px;"></div>
+        <!-- Playback Controls -->
+        <div class="mt-3">
+            <div class="btn-group" role="group" aria-label="Playback Controls">
+                <button id="playStartBtn" class="btn btn-primary">Start</button>
+                <button id="playPauseBtn" class="btn btn-secondary">Pause</button>
+                <button id="playStopBtn" class="btn btn-danger">Stop</button>
+                <button id="playStepBackBtn" class="btn btn-info">Step Backward</button>
+                <button id="playStepForwardBtn" class="btn btn-info">Step Forward</button>
+            </div>
+            <div class="mt-2">
+                <label for="playSeekBar">Progress: </label>
+                <input type="range" id="playSeekBar" min="0" max="100" value="0" style="width: 50%;" />
+                <span id="playProgressIndicator">0%</span>
+            </div>
+            <div class="mt-2">
+                <label for="playSpeedSelect">Speed: </label>
+                <select id="playSpeedSelect" title="Adjust playback speed in real time">
+                    <option value="0.5">0.5x</option>
+                    <option value="1" selected>1x</option>
+                    <option value="2">2x</option>
+                    <option value="4">4x</option>
+                    <option value="8">8x</option>
+                    <option value="10">10x</option>
+                    <option value="20">20x</option>
+                </select>
+                <label class="ms-3">
+                    <input type="checkbox" id="reversePlayback" title="Toggle reverse playback direction"> Reverse Playback
+                </label>
+            </div>
+            <!-- NEW: Polyline and Drawing Mode Controls -->
+            <div class="mt-2">
+                <label><input type="checkbox" id="togglePolyline" checked title="Display route as continuous polyline when checked; individual points when unchecked"> Show Polyline</label>
+                <label class="ms-3">Drawing Mode: </label>
+                <select id="drawingModeSelect" title="Choose drawing mode: Pre-drawn Mode shows full route upfront; Dynamic Drawing Mode draws the route incrementally">
+                    <option value="predrawn" selected>Pre-drawn Mode</option>
+                    <option value="dynamic">Dynamic Drawing Mode</option>
+                </select>
+            </div>
+            <!-- End of NEW controls -->
+        </div>
+        <div id="playError" class="mt-3 text-danger" style="display:none;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Leaflet CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+
+<!-- Playback Controls Script -->
+<script>
+    // Global variables for playback
+    var playbackMap = null;
+    var routePoints = [];
+    var playbackMarker = null;
+    var playbackTimer = null;
+    var currentPointIndex = 0;
+    var playbackSpeed = 1;
+    var isPaused = false;
+    var reversePlayback = false;
+    // NEW: Variables for polyline and points mode
+    var currentSegmentsPolyline = [];
+    var pointsMarkers = [];
+
+    function haversineDistance(coord1, coord2) {
+        var lat1 = coord1[0] * Math.PI/180;
+        var lon1 = coord1[1] * Math.PI/180;
+        var lat2 = coord2[0] * Math.PI/180;
+        var lon2 = coord2[1] * Math.PI/180;
+        var dLat = lat2 - lat1;
+        var dLon = lon2 - lon1;
+        var a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon/2) * Math.sin(dLon/2);
+        var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        var R = 6371;
+        return R * c;
+    }
+
+    // Function to update playback marker position and progress bar
+    function updatePlaybackMarker(index) {
+        if (playbackMarker && routePoints.length > index) {
+            playbackMarker.setLatLng(routePoints[index]);
+            if(playbackMap) {
+                playbackMap.panTo(routePoints[index], {animate: true});
+            }
+        }
+        var progress = Math.round((index / (routePoints.length - 1)) * 100);
+        document.getElementById('playSeekBar').value = progress;
+        document.getElementById('playProgressIndicator').innerText = progress + '%';
+    }
+
+    // ----------------------- Updated initMap -----------------------
+    function initMap(coordinates) {
+        if (playbackMap) {
+            playbackMap.remove();
+        }
+        playbackMap = L.map('map').setView(coordinates[0], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+             maxZoom: 19,
+             attribution: '© OpenStreetMap'
+        }).addTo(playbackMap);
+        playbackMap.fitBounds(L.latLngBounds(coordinates), {padding: [50, 50]});
+        // Add markers for start and end
+        L.marker(coordinates[0], { icon: L.icon({ 
+            iconUrl: 'https://maps.google.com/mapfiles/ms/icons/green-dot.png',
+            iconSize: [32, 32],
+            iconAnchor: [16, 16]
+        })}).addTo(playbackMap);
+        L.marker(coordinates[coordinates.length - 1], { icon: L.icon({ 
+            iconUrl: 'https://maps.google.com/mapfiles/ms/icons/red-dot.png',
+            iconSize: [32, 32],
+            iconAnchor: [16, 16]
+        })}).addTo(playbackMap);
+        // Initialize route display based on user controls
+        if(document.getElementById('togglePolyline').checked) {
+             if(document.getElementById('drawingModeSelect').value === 'predrawn') {
+                 currentSegmentsPolyline = [];
+                 for (var i = 0; i < coordinates.length - 1; i++) {
+                     var p0 = coordinates[i];
+                     var p1 = coordinates[i+1];
+                     var dist = haversineDistance(p0, p1);
+                     var options = {};
+                     if(dist > 5) { options = {color:'red', dashArray:'10,10', weight:5}; }
+                     else if(dist >= 1 && dist <= 5) { options = {color:'#2D336B', weight:5}; }
+                     else { options = {color:'#1F7D53', weight:5}; }
+                     var segment = L.polyline([p0, p1], options).addTo(playbackMap);
+                     currentSegmentsPolyline.push(segment);
+                 }
+             } else {
+                 currentSegmentsPolyline = [];
+                 // Dynamic mode: segments will be added during playback
+             }
+        } else {
+             pointsMarkers = [];
+             coordinates.forEach(function(pt) {
+                  var marker = L.marker(pt, {icon: L.icon({iconUrl:'https://maps.google.com/mapfiles/ms/icons/blue-dot.png', iconSize:[12,12], iconAnchor:[6,6]})}).addTo(playbackMap);
+                  pointsMarkers.push(marker);
+             });
+        }
+        // Place playback marker at the start
+        playbackMarker = L.marker(coordinates[0]).addTo(playbackMap);
+    }
+
+    // ----------------------- New: adjustMapSize Function -----------------------
+    function adjustMapSize() {
+        var modalContent = document.querySelector('#playTripModal .modal-content');
+        var header = document.querySelector('#playTripModal .modal-header');
+        var controls = document.querySelector('#playTripModal .mt-3');
+        var availableHeight = modalContent.clientHeight - header.clientHeight - (controls ? controls.clientHeight : 0) - 30;
+        document.getElementById('map').style.height = availableHeight + "px";
+        if(playbackMap) playbackMap.invalidateSize();
+    }
+
+    // ----------------------- Updated Modal Event Listener -----------------------
+    document.getElementById('playTripModal').addEventListener('shown.bs.modal', function () {
+        adjustMapSize();
+    });
+    window.addEventListener('resize', adjustMapSize);
+
+    // ----------------------- New: Playback Animation Functions -----------------------
+    function startPlaybackAnimation() {
+        playbackTimer = setInterval(function(){
+            if (!isPaused) {
+                if (reversePlayback) {
+                    currentPointIndex--;
+                    if (currentPointIndex < 0) {
+                        stopPlayback();
+                        return;
+                    }
+                } else {
+                    currentPointIndex++;
+                    if (currentPointIndex >= routePoints.length) {
+                        stopPlayback();
+                        return;
+                    }
+                }
+                // Updated dynamic drawing mode: add a new segment with styled options based on distance
+                if(document.getElementById('togglePolyline').checked && document.getElementById('drawingModeSelect').value === 'dynamic') {
+                    if(currentPointIndex > 0) {
+                        var p0 = routePoints[currentPointIndex - 1];
+                        var p1 = routePoints[currentPointIndex];
+                        var dist = haversineDistance(p0, p1);
+                        var options = {};
+                        if(dist > 5) { options = {color:'red', dashArray:'10,10'}; }
+                        else if(dist >= 1 && dist <= 5) { options = {color:'#2D336B'}; }
+                        else { options = {color:'#1F7D53'}; }
+                        var segment = L.polyline([p0, p1], options).addTo(playbackMap);
+                        currentSegmentsPolyline.push(segment);
+                    }
+                }
+                updatePlaybackMarker(currentPointIndex);
+            }
+        }, 1000 / playbackSpeed);
+    }
+
+    function startPlayback() {
+        if (!routePoints.length) return;
+        stopPlayback();
+        isPaused = false;
+        currentPointIndex = reversePlayback ? routePoints.length - 1 : 0;
+        updatePlaybackMarker(currentPointIndex);
+        startPlaybackAnimation();
+    }
+
+    function stopPlayback() {
+        if (playbackTimer) {
+            clearInterval(playbackTimer);
+            playbackTimer = null;
+        }
+        // End-of-playback: marker remains at final coordinate based on playback direction
+        currentPointIndex = reversePlayback ? 0 : routePoints.length - 1;
+        updatePlaybackMarker(currentPointIndex);
+    }
+
+    // ----------------------- Updated: Speed Control Listener -----------------------
+    document.getElementById('playSpeedSelect').addEventListener('change', function(){
+        playbackSpeed = parseFloat(this.value);
+        if(playbackTimer) {
+           clearInterval(playbackTimer);
+           startPlaybackAnimation();
+        }
+    });
+
+    // ----------------------- New: Toggle Polyline vs. Points Listener -----------------------
+    document.getElementById('togglePolyline').addEventListener('change', function() {
+        var showPolyline = this.checked;
+        if(playbackMap && routePoints && routePoints.length) {
+             if(showPolyline) {
+                  // Remove individual markers if present
+                  if(pointsMarkers.length) {
+                      pointsMarkers.forEach(function(marker){ playbackMap.removeLayer(marker); });
+                      pointsMarkers = [];
+                  }
+                  var mode = document.getElementById('drawingModeSelect').value;
+                  if(mode === 'predrawn') {
+                      if(currentSegmentsPolyline && Array.isArray(currentSegmentsPolyline)) {
+                          currentSegmentsPolyline.forEach(function(seg) { playbackMap.removeLayer(seg); });
+                      }
+                      currentSegmentsPolyline = [];
+                      for (var i = 0; i < routePoints.length - 1; i++) {
+                          var p0 = routePoints[i];
+                          var p1 = routePoints[i+1];
+                          var dist = haversineDistance(p0, p1);
+                          var options = {};
+                          if(dist > 5) { options = {color:'red', dashArray:'10,10', weight:5}; }
+                          else if(dist >= 1 && dist <= 5) { options = {color:'#2D336B', weight:5}; }
+                          else { options = {color:'#1F7D53', weight:5}; }
+                          var seg = L.polyline([p0, p1], options).addTo(playbackMap);
+                          currentSegmentsPolyline.push(seg);
+                      }
+                  } else {
+                      if(currentSegmentsPolyline && !Array.isArray(currentSegmentsPolyline)) {
+                          playbackMap.removeLayer(currentSegmentsPolyline);
+                          currentSegmentsPolyline = L.polyline([routePoints[currentPointIndex]], {color:'blue', weight:5}).addTo(playbackMap);
+                      } else {
+                          if(currentSegmentsPolyline && Array.isArray(currentSegmentsPolyline)) {
+                              currentSegmentsPolyline.forEach(function(seg) { playbackMap.removeLayer(seg); });
+                          }
+                          currentSegmentsPolyline = L.polyline([routePoints[currentPointIndex]], {color:'blue', weight:5}).addTo(playbackMap);
+                      }
+                  }
+             } else {
+                  // Remove polyline if exists and show individual markers
+                  if(currentSegmentsPolyline) {
+                      if(Array.isArray(currentSegmentsPolyline)) {
+                          currentSegmentsPolyline.forEach(function(seg) { playbackMap.removeLayer(seg); });
+                      } else {
+                          playbackMap.removeLayer(currentSegmentsPolyline);
+                      }
+                      currentSegmentsPolyline = null;
+                  }
+                  if(pointsMarkers.length) {
+                      pointsMarkers.forEach(function(marker){ playbackMap.removeLayer(marker); });
+                      pointsMarkers = [];
+                  }
+                  routePoints.forEach(function(pt) {
+                      var marker = L.marker(pt, {icon: L.icon({iconUrl:'https://maps.google.com/mapfiles/ms/icons/blue-dot.png', iconSize:[12,12], iconAnchor:[6,6]})}).addTo(playbackMap);
+                      pointsMarkers.push(marker);
+                  });
+             }
+        }
+    });
+
+    // ----------------------- New: Drawing Mode Option Listener -----------------------
+    document.getElementById('drawingModeSelect').addEventListener('change', function() {
+        var mode = this.value;
+        var showPolyline = document.getElementById('togglePolyline').checked;
+        if(playbackMap && routePoints && routePoints.length && showPolyline) {
+             // Remove existing segmented layers
+             if(currentSegmentsPolyline && Array.isArray(currentSegmentsPolyline)) {
+                 currentSegmentsPolyline.forEach(function(seg) { playbackMap.removeLayer(seg); });
+             }
+             currentSegmentsPolyline = [];
+             if(mode === 'predrawn') {
+                  for (var i = 0; i < routePoints.length - 1; i++) {
+                      var p0 = routePoints[i];
+                      var p1 = routePoints[i+1];
+                      var dist = haversineDistance(p0, p1);
+                      var options = {};
+                      if(dist > 5) { options = {color:'red', dashArray:'10,10', weight:5}; }
+                      else if(dist >= 1 && dist <= 5) { options = {color:'#2D336B', weight:5}; }
+                      else { options = {color:'#1F7D53', weight:5}; }
+                      var seg = L.polyline([p0, p1], options).addTo(playbackMap);
+                      currentSegmentsPolyline.push(seg);
+                  }
+             } else {
+                  // For dynamic mode, initialize with a starting segment in black
+                  var seg = L.polyline([routePoints[currentPointIndex]], {color:'black', weight:5}).addTo(playbackMap);
+                  currentSegmentsPolyline.push(seg);
+             }
+        }
+    });
+
+    // ----------------------- Updated: Fullscreen Toggle remains as-is -----------------------
+    document.getElementById('toggleFullscreenBtn').addEventListener('click', function() {
+        var modalContent = document.querySelector('#playTripModal .modal-content');
+        if (!document.fullscreenElement) {
+            modalContent.requestFullscreen().catch(err => {
+                console.error('Error attempting to enable full-screen mode:', err);
+            });
+            this.innerText = 'Exit Fullscreen';
+        } else {
+            document.exitFullscreen();
+            this.innerText = 'Fullscreen';
+        }
+    });
+
+    // Ensure that when the modal is hidden, we exit fullscreen mode
+    document.getElementById('playTripModal').addEventListener('hide.bs.modal', function () {
+        if (document.fullscreenElement) {
+            document.exitFullscreen();
+            document.getElementById('toggleFullscreenBtn').innerText = 'Fullscreen';
+        }
+    });
+
+    // New: Listen for fullscreen change and revert map size when exiting fullscreen
+    document.addEventListener('fullscreenchange', function () {
+        if (!document.fullscreenElement) {
+            // Revert map container size to its default (400px) when not in fullscreen
+            document.getElementById('map').style.height = '400px';
+            if (playbackMap) playbackMap.invalidateSize();
+        }
+    });
+
+    // Playback control event listeners
+    document.getElementById('playStartBtn').addEventListener('click', function(){
+         startPlayback();
+    });
+    document.getElementById('playPauseBtn').addEventListener('click', function(){
+         if(isPaused) {
+             isPaused = false;
+             this.innerText = 'Pause';
+         } else {
+             isPaused = true;
+             this.innerText = 'Resume';
+         }
+    });
+    document.getElementById('playStopBtn').addEventListener('click', function(){
+         stopPlayback();
+         document.getElementById('playPauseBtn').innerText = 'Pause';
+    });
+    document.getElementById('playStepForwardBtn').addEventListener('click', function(){
+         if(currentPointIndex < routePoints.length - 1) {
+              currentPointIndex++;
+              updatePlaybackMarker(currentPointIndex);
+         }
+    });
+    document.getElementById('playStepBackBtn').addEventListener('click', function(){
+         if(currentPointIndex > 0) {
+              currentPointIndex--;
+              updatePlaybackMarker(currentPointIndex);
+         }
+    });
+    // New: Seek Bar Listener - update playback position when user moves the seek bar
+    document.getElementById('playSeekBar').addEventListener('input', function() {
+         var percent = parseInt(this.value, 10);
+         currentPointIndex = Math.round((percent / 100) * (routePoints.length - 1));
+         updatePlaybackMarker(currentPointIndex);
+    });
+
+    function loadTripCoordinates(tripId) {
+        var modalEl = document.getElementById('playTripModal');
+        var playModal = new bootstrap.Modal(modalEl);
+        document.getElementById('playError').style.display = 'none';
+        fetch('/trip_coordinates/' + tripId)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('API error');
+                }
+                return response.json();
+            })
+            .then(data => {
+                var coords = data.data.attributes.coordinates;
+                if (!coords || !coords.length) {
+                    throw new Error('No coordinates found');
+                }
+                routePoints = coords.map(function(pair) {
+                    return [parseFloat(pair[1]), parseFloat(pair[0])];
+                });
+                // If only one coordinate is returned, add a second coordinate for playback demo
+                if(routePoints.length < 2) {
+                    routePoints.push([routePoints[0][0] + 0.001, routePoints[0][1] + 0.001]);
+                }
+                modalEl.addEventListener('shown.bs.modal', function initMapAfterShow() {
+                    initMap(routePoints);
+                    currentPointIndex = reversePlayback ? routePoints.length - 1 : 0;
+                    updatePlaybackMarker(currentPointIndex);
+                    setTimeout(function() {
+                        if (playbackMap) {
+                            playbackMap.invalidateSize();
+                        }
+                    }, 100);
+                }, { once: true });
+                playModal.show();
+            })
+            .catch(error => {
+                document.getElementById('playError').innerText = 'Error loading trip coordinates: ' + error;
+                document.getElementById('playError').style.display = 'block';
+            });
+    }
+
+    document.querySelectorAll('.play-trip-btn').forEach(function(btn){
+        btn.addEventListener('click', function(){
+            var tripId = this.getAttribute('data-trip-id');
+            loadTripCoordinates(tripId);
+        });
+    });
+
+    document.getElementById('playTripModal').addEventListener('hidden.bs.modal', function () {
+        stopPlayback();
+        if (playbackMap) {
+            playbackMap.remove();
+            playbackMap = null;
+        }
+    });
+
+    // Append the modal to the document body on show to avoid stacking context issues
+    document.addEventListener('show.bs.modal', function (event) {
+        document.body.appendChild(event.target);
+    });
+
+    // Invalidate map size when the modal is fully shown to ensure the map renders correctly
+    document.getElementById('playTripModal').addEventListener('shown.bs.modal', function () {
+        if (playbackMap) {
+            playbackMap.invalidateSize();
+        }
+    });
+
+    // Fullscreen toggle functionality for playTripModal
+    document.getElementById('toggleFullscreenBtn').addEventListener('click', function() {
+        var modalContent = document.querySelector('#playTripModal .modal-content');
+        if (!document.fullscreenElement) {
+            modalContent.requestFullscreen().catch(err => {
+                console.error('Error attempting to enable full-screen mode:', err);
+            });
+            this.innerText = 'Exit Fullscreen';
+        } else {
+            document.exitFullscreen();
+            this.innerText = 'Fullscreen';
+        }
+    });
+
+    // Ensure that when the modal is hidden, we exit fullscreen mode
+    document.getElementById('playTripModal').addEventListener('hide.bs.modal', function () {
+        if (document.fullscreenElement) {
+            document.exitFullscreen();
+            document.getElementById('toggleFullscreenBtn').innerText = 'Fullscreen';
+        }
+    });
+</script>
 {% endblock %}
