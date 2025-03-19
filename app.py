@@ -191,7 +191,15 @@ def fetch_api_token_alternative():
         return None
 
 def load_excel_data(excel_path):
-    workbook = openpyxl.load_workbook(excel_path)
+    if not os.path.exists(excel_path):
+        print(f"Excel file not found: {excel_path}. Returning empty data.")
+        return []
+    try:
+        workbook = openpyxl.load_workbook(excel_path)
+    except Exception as e:
+        print(f"Error loading Excel file: {e}")
+        return []
+    
     sheet = workbook.active
     headers = []
     data = []
@@ -203,6 +211,7 @@ def load_excel_data(excel_path):
             data.append(row_dict)
     print(f"Loaded {len(data)} rows from Excel.")
     return data
+
 
 # Carrier grouping
 CARRIER_GROUPS = {
