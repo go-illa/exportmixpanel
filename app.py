@@ -2750,7 +2750,7 @@ def automatic_insights():
         time_series[date_str][eq] = time_series[date_str].get(eq, 0) + 1
 
     # 19) Driver Behavior Analysis with threshold ratio
-    threshold = 0.9
+    threshold = 0.75
     top_high_drivers = []
     top_moderate_drivers = []
     top_low_drivers = []
