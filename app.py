@@ -115,7 +115,7 @@ def calculate_expected_trip_quality(
 
     # NEW: If the calculated distance is zero (or non-positive) OR if there is essentially no recorded distance,
     # return "No Logs Trip"
-    if calculated_distance <= 0 or (short_dist_total + medium_dist_total + long_dist_total) <= 0 or logs_count <= 1:
+    if (short_dist_total + medium_dist_total + long_dist_total) <= 0 or logs_count <= 1:
         return "No Logs Trip"
 
     # Special condition: very few logs and no medium or long segments.
@@ -686,7 +686,6 @@ def update_trip_db(trip_id, force_update=False):
                     if coordinates_data and "data" in coordinates_data and "attributes" in coordinates_data["data"]:
                         coordinates = coordinates_data["data"]["attributes"].get("coordinates", [])
                         
-                        # Calculate distance metrics
                         if coordinates and len(coordinates) >= 2:
                             analysis = analyze_trip_segments(coordinates)
                             
@@ -711,22 +710,26 @@ def update_trip_db(trip_id, force_update=False):
                                 update_status["updated_fields"].append("segment_metrics")
                                 
                             app.logger.info(f"Trip {trip_id}: Updated distance analysis metrics")
-                            
-                            # NEW: Compute Expected Trip Quality based on our criteria.
-                            expected_quality = calculate_expected_trip_quality(
-                                logs_count = db_trip.coordinate_count if db_trip.coordinate_count is not None else 0,
-                                lack_of_accuracy = db_trip.lack_of_accuracy if db_trip.lack_of_accuracy is not None else False,
-                                medium_segments_count = db_trip.medium_segments_count if db_trip.medium_segments_count is not None else 0,
-                                long_segments_count = db_trip.long_segments_count if db_trip.long_segments_count is not None else 0,
-                                short_dist_total = db_trip.short_segments_distance if db_trip.short_segments_distance is not None else 0.0,
-                                medium_dist_total = db_trip.medium_segments_distance if db_trip.medium_segments_distance is not None else 0.0,
-                                long_dist_total = db_trip.long_segments_distance if db_trip.long_segments_distance is not None else 0.0,
-                                calculated_distance = db_trip.calculated_distance if db_trip.calculated_distance is not None else 0.0
-                            )
-                            if db_trip.expected_trip_quality != expected_quality:
-                                db_trip.expected_trip_quality = expected_quality
-                                update_status["updated_fields"].append("expected_trip_quality")
-                            app.logger.info(f"Trip {trip_id}: Expected Trip Quality updated to '{expected_quality}'")
+                        else:
+                            app.logger.info(f"Trip {trip_id}: Not enough coordinates for detailed analysis")
+                    
+                    # Regardless of whether enough coordinates were fetched,
+                    # always compute Expected Trip Quality using current DB values.
+                    expected_quality = calculate_expected_trip_quality(
+                        logs_count = db_trip.coordinate_count if db_trip.coordinate_count is not None else 0,
+                        lack_of_accuracy = db_trip.lack_of_accuracy if db_trip.lack_of_accuracy is not None else False,
+                        medium_segments_count = db_trip.medium_segments_count if db_trip.medium_segments_count is not None else 0,
+                        long_segments_count = db_trip.long_segments_count if db_trip.long_segments_count is not None else 0,
+                        short_dist_total = db_trip.short_segments_distance if db_trip.short_segments_distance is not None else 0.0,
+                        medium_dist_total = db_trip.medium_segments_distance if db_trip.medium_segments_distance is not None else 0.0,
+                        long_dist_total = db_trip.long_segments_distance if db_trip.long_segments_distance is not None else 0.0,
+                        calculated_distance = db_trip.calculated_distance if db_trip.calculated_distance is not None else 0.0
+                    )
+                    if db_trip.expected_trip_quality != expected_quality:
+                        db_trip.expected_trip_quality = expected_quality
+                        update_status["updated_fields"].append("expected_trip_quality")
+                    app.logger.info(f"Trip {trip_id}: Expected Trip Quality updated to '{expected_quality}'")
+                    
                 except Exception as e:
                     app.logger.error(f"Error fetching coordinates for trip {trip_id}: {e}")
             
@@ -1032,7 +1035,6 @@ def export_trips():
 
         merged.append(row)
 
-
     # Additional variance filters
     if filters["variance_min"]:
         try:
@@ -1149,7 +1151,7 @@ def export_trips():
     if medium_segments:
         try:
             ms_value = int(medium_segments)
-            merged = [r for r in merged if r.get("medium_segments_count") is not None and compare(int(r.get("medium_segments_count")), medium_segments_op, ms_value)]
+            merged = [r for r in merged if compare(int(r.get("medium_segments_count") or 0), medium_segments_op, ms_value)]
         except ValueError:
             pass
 
@@ -1157,7 +1159,7 @@ def export_trips():
     if long_segments:
         try:
             ls_value = int(long_segments)
-            merged = [r for r in merged if r.get("long_segments_count") is not None and compare(int(r.get("long_segments_count")), long_segments_op, ls_value)]
+            merged = [r for r in merged if compare(int(r.get("long_segments_count") or 0), long_segments_op, ls_value)]
         except ValueError:
             pass
 
@@ -1165,7 +1167,7 @@ def export_trips():
     if short_dist_total:
         try:
             sdt_value = float(short_dist_total)
-            merged = [r for r in merged if r.get("short_segments_distance") is not None and compare(float(r.get("short_segments_distance")), short_dist_total_op, sdt_value)]
+            merged = [r for r in merged if compare(float(r.get("short_segments_distance") or 0.0), short_dist_total_op, sdt_value)]
         except ValueError:
             pass
 
@@ -1173,7 +1175,7 @@ def export_trips():
     if medium_dist_total:
         try:
             mdt_value = float(medium_dist_total)
-            merged = [r for r in merged if r.get("medium_segments_distance") is not None and compare(float(r.get("medium_segments_distance")), medium_dist_total_op, mdt_value)]
+            merged = [r for r in merged if compare(float(r.get("medium_segments_distance") or 0.0), medium_dist_total_op, mdt_value)]
         except ValueError:
             pass
 
@@ -1181,7 +1183,8 @@ def export_trips():
     if long_dist_total:
         try:
             ldt_value = float(long_dist_total)
-            merged = [r for r in merged if r.get("long_segments_distance") is not None and compare(float(r.get("long_segments_distance")), long_dist_total_op, ldt_value)]
+            merged = [r for r in merged if compare(float(r.get("long_segments_distance") or 0.0), long_dist_total_op, ldt_value)]
+
         except ValueError:
             pass
 
@@ -1189,7 +1192,7 @@ def export_trips():
     if max_segment_distance:
         try:
             msd_value = float(max_segment_distance)
-            merged = [r for r in merged if r.get("max_segment_distance") is not None and compare(float(r.get("max_segment_distance")), max_segment_distance_op, msd_value)]
+            merged = [r for r in merged if compare(float(r.get("max_segment_distance") or 0.0), max_segment_distance_op, msd_value)]
         except ValueError:
             pass
 
@@ -1197,7 +1200,7 @@ def export_trips():
     if avg_segment_distance:
         try:
             asd_value = float(avg_segment_distance)
-            merged = [r for r in merged if r.get("avg_segment_distance") is not None and compare(float(r.get("avg_segment_distance")), avg_segment_distance_op, asd_value)]
+            merged = [r for r in merged if compare(float(r.get("avg_segment_distance") or 0.0), avg_segment_distance_op, asd_value)]
         except ValueError:
             pass
 
