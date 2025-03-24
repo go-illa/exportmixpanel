@@ -1489,52 +1489,54 @@ def trips():
     if page < 1:
         page = 1
 
+    # Extract only non-empty filter parameters
+    filters = {}
+    for key, value in request.args.items():
+        if value and value.strip():
+            filters[key] = value.strip()
+
     # Extract basic filter parameters
-    driver_filter = request.args.get("driver", "").strip()
-    trip_id_search = request.args.get("trip_id", "").strip()
-    route_quality_filter = request.args.get("route_quality", "").strip()
-    model_filter = request.args.get("model", "").strip()
-    ram_filter = request.args.get("ram", "").strip()
-    carrier_filter = request.args.get("carrier", "").strip()
-    variance_min = request.args.get("variance_min", type=float)
-    variance_max = request.args.get("variance_max", type=float)
-    trip_time_filter = request.args.get("trip_time", "").strip()
-    trip_time_op = request.args.get("trip_time_op", "equal").strip()
-    completed_by_filter = request.args.get("completed_by", "").strip()
-    log_count_filter = request.args.get("log_count", "").strip()
-    log_count_op = request.args.get("log_count_op", "equal").strip()
-    status_filter = request.args.get("status")
-    if not status_filter:
-        status_filter = "completed"
-    else:
-        status_filter = status_filter.strip()
-    lack_of_accuracy_filter = request.args.get("lack_of_accuracy", "").strip().lower()
-    tags_filter = request.args.get("tags", "").strip()
+    driver_filter = filters.get("driver", "")
+    trip_id_search = filters.get("trip_id", "")
+    route_quality_filter = filters.get("route_quality", "")
+    model_filter = filters.get("model", "")
+    ram_filter = filters.get("ram", "")
+    carrier_filter = filters.get("carrier", "")
+    variance_min = float(filters["variance_min"]) if "variance_min" in filters else None
+    variance_max = float(filters["variance_max"]) if "variance_max" in filters else None
+    trip_time_filter = filters.get("trip_time", "")
+    trip_time_op = filters.get("trip_time_op", "equal")
+    completed_by_filter = filters.get("completed_by", "")
+    log_count_filter = filters.get("log_count", "")
+    log_count_op = filters.get("log_count_op", "equal")
+    status_filter = filters.get("status", "completed")
+    lack_of_accuracy_filter = filters.get("lack_of_accuracy", "").lower()
+    tags_filter = filters.get("tags", "")
 
     # Expected trip quality filter
-    expected_trip_quality_filter = request.args.get("expected_trip_quality", "").strip()
+    expected_trip_quality_filter = filters.get("expected_trip_quality", "")
 
     # Extract range filters for trip_time and log_count
-    trip_time_min = request.args.get("trip_time_min", "").strip()
-    trip_time_max = request.args.get("trip_time_max", "").strip()
-    log_count_min = request.args.get("log_count_min", "").strip()
-    log_count_max = request.args.get("log_count_max", "").strip()
+    trip_time_min = filters.get("trip_time_min", "")
+    trip_time_max = filters.get("trip_time_max", "")
+    log_count_min = filters.get("log_count_min", "")
+    log_count_max = filters.get("log_count_max", "")
 
     # Extract segment analysis filter parameters
-    medium_segments = request.args.get("medium_segments", "").strip()
-    medium_segments_op = request.args.get("medium_segments_op", "equal").strip()
-    long_segments = request.args.get("long_segments", "").strip()
-    long_segments_op = request.args.get("long_segments_op", "equal").strip()
-    short_dist_total = request.args.get("short_dist_total", "").strip()
-    short_dist_total_op = request.args.get("short_dist_total_op", "equal").strip()
-    medium_dist_total = request.args.get("medium_dist_total", "").strip()
-    medium_dist_total_op = request.args.get("medium_dist_total_op", "equal").strip()
-    long_dist_total = request.args.get("long_dist_total", "").strip()
-    long_dist_total_op = request.args.get("long_dist_total_op", "equal").strip()
-    max_segment_distance = request.args.get("max_segment_distance", "").strip()
-    max_segment_distance_op = request.args.get("max_segment_distance_op", "equal").strip()
-    avg_segment_distance = request.args.get("avg_segment_distance", "").strip()
-    avg_segment_distance_op = request.args.get("avg_segment_distance_op", "equal").strip()
+    medium_segments = filters.get("medium_segments", "")
+    medium_segments_op = filters.get("medium_segments_op", "equal")
+    long_segments = filters.get("long_segments", "")
+    long_segments_op = filters.get("long_segments_op", "equal")
+    short_dist_total = filters.get("short_dist_total", "")
+    short_dist_total_op = filters.get("short_dist_total_op", "equal")
+    medium_dist_total = filters.get("medium_dist_total", "")
+    medium_dist_total_op = filters.get("medium_dist_total_op", "equal")
+    long_dist_total = filters.get("long_dist_total", "")
+    long_dist_total_op = filters.get("long_dist_total_op", "equal")
+    max_segment_distance = filters.get("max_segment_distance", "")
+    max_segment_distance_op = filters.get("max_segment_distance_op", "equal")
+    avg_segment_distance = filters.get("avg_segment_distance", "")
+    avg_segment_distance_op = filters.get("avg_segment_distance_op", "equal")
 
     # Define helper functions for numeric comparisons
     def normalize_op(op):
@@ -1894,7 +1896,8 @@ def trips():
         completed_by_options=completed_by_options,
         models_options=models_options,
         tags_for_dropdown=tags_for_dropdown,
-        expected_trip_quality_filter=expected_trip_quality_filter
+        expected_trip_quality_filter=expected_trip_quality_filter,
+        filters=filters  # Pass all active filters to the template
     )
 
 

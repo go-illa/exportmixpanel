@@ -57,7 +57,7 @@ max-width: 100%;
 <div class="card mb-4 animate__animated animate__fadeInUp" style="padding-left: 3%; padding-right: 3%;">
   <div class="card-body">
     <h2 class="card-title">Trips</h2>
-    <form class="row g-3" method="GET" action="{{ url_for('trips') }}">
+    <form class="row g-3" method="GET" action="{{ url_for('trips') }}" id="filterForm">
       <div class="col-md-2">
         <input type="text" name="trip_id" class="form-control" placeholder="Trip ID" value="{{ trip_id_search }}" />
       </div>
@@ -440,12 +440,16 @@ max-width: 100%;
     <p class="mb-0">Showing page {{ page }} of {{ total_pages }} ({{ total_rows }} total rows)</p>
     <div>
       {% if page > 1 %}
-        <a class="btn btn-secondary btn-sm" href="?page={{ page-1 }}&trip_id={{ trip_id_search }}&route_quality={{ route_quality_filter }}&model={{ model_filter }}&ram={{ ram_filter }}&carrier={{ carrier_filter }}&variance_min={{ variance_min }}&variance_max={{ variance_max }}&driver={{ driver_filter or '' }}&trip_time_min={{ request.args.get('trip_time_min','') }}&trip_time_max={{ request.args.get('trip_time_max','') }}&trip_time={{ request.args.get('trip_time','') }}&trip_time_op={{ request.args.get('trip_time_op','equal') }}&completed_by={{ request.args.get('completed_by','') }}&log_count_min={{ request.args.get('log_count_min','') }}&log_count_max={{ request.args.get('log_count_max','') }}&log_count={{ request.args.get('log_count','') }}&log_count_op={{ request.args.get('log_count_op','equal') }}&status={{ request.args.get('status','') }}&lack_of_accuracy={{ request.args.get('lack_of_accuracy','') }}&tags={{ request.args.get('tags','') }}">
+        {% set prev_args = dict(request.args) %}
+        {% set _ = prev_args.update({'page': page-1}) %}
+        <a class="btn btn-secondary btn-sm" href="{{ url_for('trips', **prev_args) }}">
           Previous
         </a>
       {% endif %}
       {% if page < total_pages %}
-        <a class="btn btn-secondary btn-sm" href="?page={{ page+1 }}&trip_id={{ trip_id_search }}&route_quality={{ route_quality_filter }}&model={{ model_filter }}&ram={{ ram_filter }}&carrier={{ carrier_filter }}&variance_min={{ variance_min }}&variance_max={{ variance_max }}&driver={{ driver_filter or '' }}&trip_time_min={{ request.args.get('trip_time_min','') }}&trip_time_max={{ request.args.get('trip_time_max','') }}&trip_time={{ request.args.get('trip_time','') }}&trip_time_op={{ request.args.get('trip_time_op','equal') }}&completed_by={{ request.args.get('completed_by','') }}&log_count_min={{ request.args.get('log_count_min','') }}&log_count_max={{ request.args.get('log_count_max','') }}&log_count={{ request.args.get('log_count','') }}&log_count_op={{ request.args.get('log_count_op','equal') }}&status={{ request.args.get('status','') }}&lack_of_accuracy={{ request.args.get('lack_of_accuracy','') }}&tags={{ request.args.get('tags','') }}">
+        {% set next_args = dict(request.args) %}
+        {% set _ = next_args.update({'page': page+1}) %}
+        <a class="btn btn-secondary btn-sm" href="{{ url_for('trips', **next_args) }}">
           Next
         </a>
       {% endif %}
@@ -649,6 +653,77 @@ document.addEventListener('DOMContentLoaded', function() {
       };
     });
   }
+});
+
+// Add this at the end of your existing script
+document.getElementById('filterForm').addEventListener('submit', function(event) {
+  event.preventDefault();
+  const formData = new FormData(this);
+  const cleanedParams = new URLSearchParams();
+
+  // Create a map of operator fields to their corresponding value fields
+  const operatorPairs = {
+    'trip_time_op': 'trip_time',
+    'log_count_op': 'log_count',
+    'medium_segments_op': 'medium_segments',
+    'long_segments_op': 'long_segments',
+    'short_dist_total_op': 'short_dist_total',
+    'medium_dist_total_op': 'medium_dist_total',
+    'long_dist_total_op': 'long_dist_total',
+    'max_segment_distance_op': 'max_segment_distance',
+    'avg_segment_distance_op': 'avg_segment_distance'
+  };
+
+  // First pass: collect all values
+  const values = {};
+  for (const [key, value] of formData.entries()) {
+    values[key] = value.trim();
+  }
+
+  // Second pass: add only non-empty parameters to URL
+  for (const [key, value] of formData.entries()) {
+    const trimmedValue = value.trim();
+    
+    // Skip empty values and default values
+    if (!trimmedValue) continue;
+    if (key === 'export_name' && trimmedValue === 'exported_trips') continue;
+    if (key === 'status' && trimmedValue === 'completed') continue;
+
+    // Handle operator fields
+    if (key.endsWith('_op')) {
+      const valueField = operatorPairs[key];
+      // Only include operator if it has a corresponding non-empty value
+      if (values[valueField]) {
+        if (trimmedValue !== 'equal') { // Only include non-default operators
+          cleanedParams.append(key, trimmedValue);
+        }
+      }
+    }
+    // Handle regular fields
+    else {
+      // If this is a value field with an operator, only include it if it has a value
+      if (Object.values(operatorPairs).includes(key)) {
+        if (values[key]) {
+          cleanedParams.append(key, trimmedValue);
+        }
+      }
+      // For all other fields, include if they have a value
+      else {
+        cleanedParams.append(key, trimmedValue);
+      }
+    }
+  }
+
+  // Add page parameter if it exists and is not 1
+  const urlParams = new URLSearchParams(window.location.search);
+  const page = urlParams.get('page');
+  if (page && page !== '1') {
+    cleanedParams.append('page', page);
+  }
+
+  const queryString = cleanedParams.toString();
+  window.location.href = '{{ url_for("trips") }}' + (queryString ? '?' + queryString : '');
+  return false;
 });
 </script>
 
@@ -1390,5 +1465,77 @@ document.addEventListener('DOMContentLoaded', function(){
     });
   });
 });
+
+function cleanForm(event) {
+  event.preventDefault();
+  const form = event.target;
+  const formData = new FormData(form);
+  const cleanedParams = new URLSearchParams();
+
+  // Create a map of operator fields to their corresponding value fields
+  const operatorPairs = {
+    'trip_time_op': 'trip_time',
+    'log_count_op': 'log_count',
+    'medium_segments_op': 'medium_segments',
+    'long_segments_op': 'long_segments',
+    'short_dist_total_op': 'short_dist_total',
+    'medium_dist_total_op': 'medium_dist_total',
+    'long_dist_total_op': 'long_dist_total',
+    'max_segment_distance_op': 'max_segment_distance',
+    'avg_segment_distance_op': 'avg_segment_distance'
+  };
+
+  // First pass: collect all values
+  const values = {};
+  for (const [key, value] of formData.entries()) {
+    values[key] = value.trim();
+  }
+
+  // Second pass: add only non-empty parameters to URL
+  for (const [key, value] of formData.entries()) {
+    const trimmedValue = value.trim();
+    
+    // Skip empty values and default values
+    if (!trimmedValue) continue;
+    if (key === 'export_name' && trimmedValue === 'exported_trips') continue;
+    if (key === 'status' && trimmedValue === 'completed') continue;
+
+    // Handle operator fields
+    if (key.endsWith('_op')) {
+      const valueField = operatorPairs[key];
+      // Only include operator if it has a corresponding non-empty value
+      if (values[valueField]) {
+        if (trimmedValue !== 'equal') { // Only include non-default operators
+          cleanedParams.append(key, trimmedValue);
+        }
+      }
+    }
+    // Handle regular fields
+    else {
+      const operatorField = key + '_op';
+      // If this is a value field with an operator, only include it if it has a value
+      if (Object.values(operatorPairs).includes(key)) {
+        if (values[key]) {
+          cleanedParams.append(key, trimmedValue);
+        }
+      }
+      // For all other fields, include if they have a value
+      else {
+        cleanedParams.append(key, trimmedValue);
+      }
+    }
+  }
+
+  // Add page parameter if it exists and is not 1
+  const urlParams = new URLSearchParams(window.location.search);
+  const page = urlParams.get('page');
+  if (page && page !== '1') {
+    cleanedParams.append('page', page);
+  }
+
+  const queryString = cleanedParams.toString();
+  window.location.href = `${form.action}${queryString ? '?' + queryString : ''}`;
+  return false;
+}
 </script>
 {% endblock %}
