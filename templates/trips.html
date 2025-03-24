@@ -299,6 +299,7 @@ max-width: 100%;
   </div>
   <div class="mb-3">
     <button id="full-update-btn" class="btn btn-danger">Full Refresh Excel Trips</button>
+    <button id="update-all-tags-btn" class="btn btn-success" title="This will analyze log files for all trips and update their tags based on the analysis">Update Excel Trips Tags</button>
   </div>
   <div id="update-progress-container" style="display:none; margin-bottom: 15px;">
     <div class="progress" style="height: 25px;">
@@ -358,6 +359,7 @@ max-width: 100%;
           <th>Tags</th>
           <th>View Details</th>
           <th>Play Trip</th>
+          <th>Log Analysis</th>
         </tr>
       </thead>
       <tbody>
@@ -430,6 +432,9 @@ max-width: 100%;
           </td>
           <td>
             <button class="btn btn-info btn-sm play-trip-btn" data-trip-id="{{ trip.tripId }}">Play Trip</button>
+          </td>
+          <td>
+            <button class="btn btn-warning btn-sm analyze-logs-btn" data-trip-id="{{ trip.tripId }}">Analyze Logs</button>
           </td>
         </tr>
         {% endfor %}
