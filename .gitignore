@@ -3,6 +3,7 @@ venv/
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyc
 
 # Distribution / packaging
 dist/
@@ -11,6 +12,7 @@ build/
 
 # Local data files
 *.db
+*.db.bak
 *.xlsx
 data/*.csv
 data/*.json
@@ -27,4 +29,7 @@ data/*.json
 
 # OS specific files
 .DS_Store
-Thumbs.db 
+Thumbs.db
+
+# Additional entries
+.pytest_cache/ 
