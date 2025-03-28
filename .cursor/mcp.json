@@ -1,0 +1,14 @@
+{
+    "mcpServers": {
+      "memory": {
+        "command": "cmd /c npx",
+        "args": [
+          "-y",
+          "@itseasy21/mcp-knowledge-graph"
+        ],
+        "env": {
+          "MEMORY_FILE_PATH": "C:\\Users\\ahmad\\OneDrive\\Documents\\GitHub\\exportmixpanel\\context for cursor\\project_name.jsonl"
+        }
+      }
+    }
+  }
